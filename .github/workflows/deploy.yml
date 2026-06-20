@@ -43,7 +43,7 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-auth
-        platforms: linux/arm64
+        platforms: linux/amd64
         push: true
         tags: |
           ${{ env.ECR_REGISTRY }}/deleuze-auth:latest
@@ -53,7 +53,7 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-app
-        platforms: linux/arm64
+        platforms: linux/amd64
         push: true
         tags: |
           ${{ env.ECR_REGISTRY }}/deleuze-app:latest
@@ -63,7 +63,7 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-mng
-        platforms: linux/arm64
+        platforms: linux/amd64
         push: true
         tags: |
           ${{ env.ECR_REGISTRY }}/deleuze-mng:latest
