@@ -50,7 +50,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 // 5. ヘルスチェックエンドポイント
-app.MapHealthChecks("/healthz");
+app.MapHealthChecks("/health");
 
 // 6. テナント別データ取得API
 app.MapGet("/api/products", async (AppDbContext db, ITenantProvider tenantProvider) =>
