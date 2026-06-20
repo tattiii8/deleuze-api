@@ -21,9 +21,10 @@ builder.Services.AddScoped<ITenantProvider, HttpHeaderTenantProvider>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        // ★ 修正ポイント: コンテナ内から認証サーバーの鍵（JWKS）を取得できる有効なルートに書き換える
-        // bridgeグループ内、またはホスト経由でアクセス可能なURLを指定します
-        options.Authority = "http://192.168.8.112:5002"; 
+        // ★ 修正ポイント: 環境変数から「内部の鍵取得用URL」を動的に読み込む
+        var internalAuthUrl = Environment.GetEnvironmentVariable("AUTH_INTERNAL_URL") ?? "http://127.0.0.1:5002";
+        
+        options.Authority = internalAuthUrl; 
         options.RequireHttpsMetadata = false; 
 
         options.TokenValidationParameters = new TokenValidationParameters
@@ -33,7 +34,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuerSigningKey = true, 
             ValidateLifetime = true,
 
-            // 認証サーバーの AUTH_EXTERNAL_URL と一致させる
+            // トークンに刻まれている「外側の本名」を検証する
             ValidIssuers = new[]
             {
                 "http://192.168.8.112:5002"
