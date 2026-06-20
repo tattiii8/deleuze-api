@@ -3,29 +3,49 @@ name: CI to AWS ECR
 on:
   push:
     branches: [ main ]
+    # 💡 ここで監視対象のディレクトリを指定します
+    paths:
+      - 'deleuze-auth/**'
+      - 'deleuze-app/**'
+      - 'deleuze-mng/**'
+      - '.github/workflows/**'
 
 env:
   AWS_REGION: ap-northeast-1
   ECR_REGISTRY: 871950640338.dkr.ecr.ap-northeast-1.amazonaws.com
 
 jobs:
-  build-and-push:
+  # 🔍 まず、どのディレクトリに変更があったかをチェックする共通ジョブ
+  changes:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    outputs:
+      auth: ${{ steps.filter.outputs.auth }}
+      app:  ${{ steps.filter.outputs.app }}
+      mng:  ${{ steps.filter.outputs.mng }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          auth: ['deleuze-auth/**']
+          app:  ['deleuze-app/**']
+          mng:  ['deleuze-mng/**']
 
+  # 🚀 ビルド＆プッシュを実行するメインジョブ
+  build-and-push:
+    needs: changes # 変更検知ジョブの完了を待つ
+    runs-on: ubuntu-latest
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # 複数アーキテクチャ(linux/arm64)ビルドのためのセットアップ
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    # 1. AWS への認証
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
@@ -33,13 +53,13 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
 
-    # 2. ECR へのログイン
     - name: Log in to AWS ECR
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
 
-    # 3. 各コンテナのビルド ＆ ECRへのプッシュ (latest と sha の2つのタグを同時付与)
+    # 🔗 1. deleuze-auth (authに変更があった場合、または初回等で全体を動かしたい場合のみ実行)
     - name: Build and Push deleuze-auth
+      if: ${{ needs.changes.outputs.auth == 'true' }}
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-auth
@@ -49,7 +69,9 @@ jobs:
           ${{ env.ECR_REGISTRY }}/deleuze-auth:latest
           ${{ env.ECR_REGISTRY }}/deleuze-auth:${{ github.sha }}
 
+    # 🔗 2. deleuze-app
     - name: Build and Push deleuze-app
+      if: ${{ needs.changes.outputs.app == 'true' }}
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-app
@@ -59,7 +81,9 @@ jobs:
           ${{ env.ECR_REGISTRY }}/deleuze-app:latest
           ${{ env.ECR_REGISTRY }}/deleuze-app:${{ github.sha }}
 
+    # 🔗 3. deleuze-mng
     - name: Build and Push deleuze-mng
+      if: ${{ needs.changes.outputs.mng == 'true' }}
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-mng
