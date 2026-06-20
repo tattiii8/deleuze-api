@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  deleuze-db:
+    image: postgres:16-alpine
+    container_name: deleuze-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: deleuzedb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  deleuze-auth:
+    image: deleuze-auth
+    platform: linux/arm64
+    build:
+      context: ./deleuze-auth
+      dockerfile: Dockerfile
+    container_name: deleuze-auth
+    ports:
+      - "5002:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=deleuze-db;Database=deleuzedb;Username=postgres;Password=password
+    depends_on:
+      - deleuze-db
+
+  deleuze-app:
+    image: deleuze-app
+    platform: linux/arm64 
+    build:
+      context: ./deleuze-app
+      dockerfile: Dockerfile
+    container_name: deleuze-app
+    ports:
+      - "5001:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=deleuze-db;Database=deleuzedb;Username=postgres;Password=password
+    depends_on:
+      - deleuze-db
+      - deleuze-auth
+
+  deleuze-mng:
+    image: deleuze-mng
+    platform: linux/arm64
+    build:
+      context: ./deleuze-mng
+      dockerfile: Dockerfile
+    container_name: deleuze-mng
+    ports:
+      - "5003:8080" # 管理用APIポート
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=deleuze-db;Database=deleuzedb;Username=postgres;Password=password
+    depends_on:
+      - deleuze-db
+
+volumes:
+  pgdata:
