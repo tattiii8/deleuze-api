@@ -1,34 +1,31 @@
-name: CI/CD to Nomad via ECR
+name: CI to AWS ECR
 
 on:
   push:
     branches: [ main ]
 
 env:
-  AWS_REGION: ap-northeast-1 # あなたのAWSリージョン
-  # 💡 ECRのレジストリURI (AWSアカウントIDを入れてください)
+  AWS_REGION: ap-northeast-1
   ECR_REGISTRY: 871950640338.dkr.ecr.ap-northeast-1.amazonaws.com
-  NOMAD_ADDR: ${{ secrets.NOMAD_ADDR }}
-  NOMAD_TOKEN: ${{ secrets.NOMAD_TOKEN }}
 
 jobs:
-  build-and-deploy:
+  build-and-push:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write # OIDC利用時に必要
       contents: read
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    # 複数アーキテクチャ(linux/arm64)ビルドのためのセットアップ
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    # 1. AWS への認証 (GitHub Secrets からクレデンシャルを読み込む場合)
+    # 1. AWS への認証
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
@@ -41,14 +38,16 @@ jobs:
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
 
-    # 3. 各コンテナのビルド ＆ プッシュ
+    # 3. 各コンテナのビルド ＆ ECRへのプッシュ (latest と sha の2つのタグを同時付与)
     - name: Build and Push deleuze-auth
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-auth
         platforms: linux/arm64
         push: true
-        tags: ${{ env.ECR_REGISTRY }}/deleuze-auth:${{ github.sha }}
+        tags: |
+          ${{ env.ECR_REGISTRY }}/deleuze-auth:latest
+          ${{ env.ECR_REGISTRY }}/deleuze-auth:${{ github.sha }}
 
     - name: Build and Push deleuze-app
       uses: docker/build-push-action@v5
@@ -56,7 +55,9 @@ jobs:
         context: ./deleuze-app
         platforms: linux/arm64
         push: true
-        tags: ${{ env.ECR_REGISTRY }}/deleuze-app:${{ github.sha }}
+        tags: |
+          ${{ env.ECR_REGISTRY }}/deleuze-app:latest
+          ${{ env.ECR_REGISTRY }}/deleuze-app:${{ github.sha }}
 
     - name: Build and Push deleuze-mng
       uses: docker/build-push-action@v5
@@ -64,14 +65,6 @@ jobs:
         context: ./deleuze-mng
         platforms: linux/arm64
         push: true
-        tags: ${{ env.ECR_REGISTRY }}/deleuze-mng:${{ github.sha }}
-
-    # 4. Nomad へのデプロイを実行
-    - name: Setup Nomad CLI
-      uses: hashicorp/setup-nomad@v2
-      with:
-        version: "1.7.0"
-
-    - name: Nomad Job Run
-      run: |
-        nomad job run -var="image_tag=${{ github.sha }}" deleuze.nomad
+        tags: |
+          ${{ env.ECR_REGISTRY }}/deleuze-mng:latest
+          ${{ env.ECR_REGISTRY }}/deleuze-mng:${{ github.sha }}
