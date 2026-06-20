@@ -1,3 +1,4 @@
+using System;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -8,11 +9,15 @@ namespace DeleuzeAuth.Services;
 public class TokenGenerator
 {
     private readonly RsaSecurityKey _signingKey;
-    private readonly string _issuer = "http://deleuze-auth:8080";
+    private readonly string _issuer;
     public string KeyId { get; } = "deleuze-auth-key-v1";
 
     public TokenGenerator()
     {
+        // ★ 修正ポイント: Nomad環境等のURLズレに対応するため、環境変数から外側の正規URLを取得。
+        // 未設定時はフォールバックとして従来の内部コンテナURLを使用します。
+        _issuer = Environment.GetEnvironmentVariable("AUTH_EXTERNAL_URL") ?? "http://deleuze-auth:8080";
+
         // 本番では固定の鍵ファイルから読み込みますが、開発のため起動時オンメモリ生成
         var rsa = RSA.Create(2048);
         _signingKey = new RsaSecurityKey(rsa) { KeyId = KeyId };
@@ -32,8 +37,8 @@ public class TokenGenerator
         };
 
         var token = new JwtSecurityToken(
-            issuer: _issuer,
-            audience: null, // 単一IssuerのためAudienceは検証対象外
+            issuer: _issuer, // ★ 常に外側から見える正規URL（または指定URL）が iss に刻まれる
+            audience: null,  // 単一IssuerのためAudienceは検証対象外
             claims: claims,
             notBefore: DateTime.UtcNow,
             expires: DateTime.UtcNow.AddHours(2),

@@ -21,18 +21,23 @@ builder.Services.AddScoped<ITenantProvider, HttpHeaderTenantProvider>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
+        // 💡 鍵（JWKS）を取得しにいくコンテナ内バックエンドルート
         options.Authority = "http://deleuze-auth:8080";
-        options.RequireHttpsMetadata = false; // 開発環境・ローカルクラスターのためHTTPを許可
+        options.RequireHttpsMetadata = false; // 開発・ローカルクラスター環境のためHTTPを許可
         
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateAudience = false,
-            ValidateIssuer = true, // Issuer検証は有効に維持してセキュアに保つ
             
-            // ★ 修正ポイント: コンテナ間URLと外側のホストIP、どちらのトークンも正当な発行元として受け入れる
+            // ★ 本番仕様の厳格検証をすべて有効化
+            ValidateIssuer = true,
+            ValidateIssuerSigningKey = true, // 認証サーバーから取得した公開鍵による署名検証を必須にする
+            ValidateLifetime = true,         // トークンの有効期限チェックを必須にする
+
+            // ★ 認証サーバーの環境変数 (AUTH_EXTERNAL_URL) から払い出される、
+            // 外側の正規URLを「正当な発行元」としてホワイトリストに指定
             ValidIssuers = new[]
             {
-                "http://deleuze-auth:8080",
                 "http://192.168.8.112:5002"
             }
         };
@@ -58,7 +63,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 // 5. ヘルスチェックエンドポイント（スクリプトの /healthz と同期）
-app.MapHealthChecks("/healthz");
+app.MapHealthChecks("/health");
 
 // 6. テナント別データ取得API
 app.MapGet("/api/products", async (AppDbContext db, ITenantProvider tenantProvider) =>
