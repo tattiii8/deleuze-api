@@ -1,2 +1,5 @@
 /.DS_Store
 /debug-flow.sh
+
+*.sh
+*.json
