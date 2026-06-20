@@ -1,4 +1,5 @@
 using DeleuzeMng.Services;
+using DeleuzeMng.Data; // 💡 追加
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -9,6 +10,12 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddScoped<TenantManagementService>(_ => new TenantManagementService(connectionString));
 
 var app = builder.Build();
+
+// =========================================================================
+// 🚀 データベースの初期化（別クラスから非同期で1行だけ呼び出す）
+// =========================================================================
+await DbInitializer.EnsureSeedDataAsync(connectionString);
+// =========================================================================
 
 // 🛠️ 管理エンドポイント1: テナントの新規作成（オンボーディング）
 app.MapPost("/api/mng/tenants", async (TenantCreationRequest req, TenantManagementService mngService) =>
