@@ -27,6 +27,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         options.Authority = internalAuthUrl; 
         options.RequireHttpsMetadata = false; 
 
+        options.RefreshOnIssuerKeyNotFound = true;
+
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateAudience = false,
