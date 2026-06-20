@@ -1014,7 +1014,6 @@
   },
   "projectFileDependencyGroups": {
     "net8.0": [
-      "AspNetCore.Diagnostics.HealthChecks.Npgsql >= 8.0.1",
       "Microsoft.AspNetCore.Authentication.JwtBearer >= 8.0.0",
       "Microsoft.EntityFrameworkCore >= 8.0.0",
       "Npgsql.EntityFrameworkCore.PostgreSQL >= 8.0.0"
@@ -1062,10 +1061,6 @@
       "net8.0": {
         "targetAlias": "net8.0",
         "dependencies": {
-          "AspNetCore.Diagnostics.HealthChecks.Npgsql": {
-            "target": "Package",
-            "version": "[8.0.1, )"
-          },
           "Microsoft.AspNetCore.Authentication.JwtBearer": {
             "target": "Package",
             "version": "[8.0.0, )"
@@ -1101,16 +1096,5 @@
         "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/8.0.412/PortableRuntimeIdentifierGraph.json"
       }
     }
-  },
-  "logs": [
-    {
-      "code": "NU1101",
-      "level": "Error",
-      "message": "Unable to find package AspNetCore.Diagnostics.HealthChecks.Npgsql. No packages exist with this id in source(s): nuget.org",
-      "libraryId": "AspNetCore.Diagnostics.HealthChecks.Npgsql",
-      "targetGraphs": [
-        "net8.0"
-      ]
-    }
-  ]
+  }
 }

@@ -1,7 +1,7 @@
 {
   "version": 2,
-  "dgSpecHash": "38Wf+1HUDew=",
-  "success": false,
+  "dgSpecHash": "VVZ5S6PwwrM=",
+  "success": true,
   "projectFilePath": "/Users/tatsuki/Desktop/deleuze-api/deleuze-app/deleuze-app.csproj",
   "expectedPackageFiles": [
     "/Users/tatsuki/.nuget/packages/microsoft.aspnetcore.authentication.jwtbearer/8.0.0/microsoft.aspnetcore.authentication.jwtbearer.8.0.0.nupkg.sha512",
@@ -28,15 +28,5 @@
     "/Users/tatsuki/.nuget/packages/npgsql.entityframeworkcore.postgresql/8.0.0/npgsql.entityframeworkcore.postgresql.8.0.0.nupkg.sha512",
     "/Users/tatsuki/.nuget/packages/system.identitymodel.tokens.jwt/7.0.3/system.identitymodel.tokens.jwt.7.0.3.nupkg.sha512"
   ],
-  "logs": [
-    {
-      "code": "NU1101",
-      "level": "Error",
-      "message": "Unable to find package AspNetCore.Diagnostics.HealthChecks.Npgsql. No packages exist with this id in source(s): nuget.org",
-      "libraryId": "AspNetCore.Diagnostics.HealthChecks.Npgsql",
-      "targetGraphs": [
-        "net8.0"
-      ]
-    }
-  ]
+  "logs": []
 }
