@@ -1,0 +1,77 @@
+name: CI/CD to Nomad via ECR
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  AWS_REGION: ap-northeast-1 # あなたのAWSリージョン
+  # 💡 ECRのレジストリURI (AWSアカウントIDを入れてください)
+  ECR_REGISTRY: 871950640338.dkr.ecr.ap-northeast-1.amazonaws.com
+  NOMAD_ADDR: ${{ secrets.NOMAD_ADDR }}
+  NOMAD_TOKEN: ${{ secrets.NOMAD_TOKEN }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # OIDC利用時に必要
+      contents: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    # 1. AWS への認証 (GitHub Secrets からクレデンシャルを読み込む場合)
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    # 2. ECR へのログイン
+    - name: Log in to AWS ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    # 3. 各コンテナのビルド ＆ プッシュ
+    - name: Build and Push deleuze-auth
+      uses: docker/build-push-action@v5
+      with:
+        context: ./deleuze-auth
+        platforms: linux/arm64
+        push: true
+        tags: ${{ env.ECR_REGISTRY }}/deleuze-auth:${{ github.sha }}
+
+    - name: Build and Push deleuze-app
+      uses: docker/build-push-action@v5
+      with:
+        context: ./deleuze-app
+        platforms: linux/arm64
+        push: true
+        tags: ${{ env.ECR_REGISTRY }}/deleuze-app:${{ github.sha }}
+
+    - name: Build and Push deleuze-mng
+      uses: docker/build-push-action@v5
+      with:
+        context: ./deleuze-mng
+        platforms: linux/arm64
+        push: true
+        tags: ${{ env.ECR_REGISTRY }}/deleuze-mng:${{ github.sha }}
+
+    # 4. Nomad へのデプロイを実行
+    - name: Setup Nomad CLI
+      uses: hashicorp/setup-nomad@v3
+      with:
+        version: "1.7.0"
+
+    - name: Nomad Job Run
+      run: |
+        nomad job run -var="image_tag=${{ github.sha }}" deleuze.nomad
