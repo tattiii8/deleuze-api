@@ -1,14 +1,52 @@
 using DeleuzeMng.Services;
+using Npgsql;
+using Dapper;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
+// 💡 1. 接続文字列の取得を強化（構成ファイル or Nomadの環境変数から直接取得）
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
     ?? throw new InvalidOperationException("Connection string not found.");
 
 // 管理用サービスの登録
 builder.Services.AddScoped<TenantManagementService>(_ => new TenantManagementService(connectionString));
 
 var app = builder.Build();
+
+// =========================================================================
+// 🚀 物理インラインによるDB初期化（コンパイル対象から漏れるリスクをゼロにする）
+// =========================================================================
+await (async () => 
+{
+    // コンテナ起動直後に必ず標準出力に痕跡を残す
+    Console.WriteLine($"[INIT-START] Database initialization triggered. Target Host: {new NpgsqlConnectionStringBuilder(connectionString).Host}");
+    
+    try 
+    {
+        using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+
+        var createTableSql = @"
+            CREATE TABLE IF NOT EXISTS public.""Users"" (
+                ""Id"" SERIAL PRIMARY KEY,
+                ""LoginId"" VARCHAR(100) NOT NULL UNIQUE,
+                ""Password"" VARCHAR(255) NOT NULL,
+                ""TenantId"" VARCHAR(100) NOT NULL,
+                ""CreatedAt"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );";
+
+        await connection.ExecuteAsync(createTableSql);
+        Console.WriteLine("[INIT-SUCCESS] public.\"Users\" テーブルの整合性を確認・自動生成しました。");
+    }
+    catch (Exception ex) 
+    {
+        // 失敗した場合、Nomadのログに確実にエラーを残す
+        Console.Error.WriteLine($"[INIT-FATAL-ERROR] データベースの初期化中に致命的な例外が発生しました: {ex.Message}");
+        Console.Error.WriteLine(ex.StackTrace);
+    }
+})();
+// =========================================================================
 
 // 🛠️ 管理エンドポイント1: テナントの新規作成（オンボーディング）
 app.MapPost("/api/mng/tenants", async (TenantCreationRequest req, TenantManagementService mngService) =>
