@@ -7,13 +7,13 @@ YELLOW='\033[0;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-# 💡 Nomadのエンドポイント定義
+# 💡 Nomad/ローカル環境のエンドポイント定義（環境に合わせて調整してください）
 AUTH_URL="${AUTH_URL:-http://192.168.8.112:5002}"
 APP_URL="${APP_URL:-http://192.168.8.112:5001}"
 
-# テスト用ダミーデータ（プロビジョニング済みのデータに合わせて調整してください）
+# テスト用データ（登録済みのプロビジョニングデータ）
 TEST_USER="gilles"
-TEST_PASS="philosophyPass1" # 👈 "password" から実データに変更
+TEST_PASS="philosophyPass1"
 TEST_TENANT="deleuze"
 
 echo -e "${CYAN}======================================================${NC}"
@@ -32,18 +32,12 @@ fi
 echo -e "\n${YELLOW}[STEP 1] 認証サーバー (${AUTH_URL}) でログインを実行します...${NC}"
 echo -e "🔄 ユーザー: ${TEST_USER} | OIDC トークンエンドポイントへリクエスト中..."
 
-# 💡 修正ポイント: 
-# 1. パスを /api/auth/login から /connect/token に変更
-# 2. -H "Content-Type: application/x-www-form-urlencoded" に変更
-# 3. データを JSON ではなく -d "key=value" のフォーム形式に変更
-# 4. コード側のキー名 (user_id, password) に合わせて送信
 AUTH_RESPONSE=$(curl -s -X POST "${AUTH_URL}/connect/token" \
      -H "Content-Type: application/x-www-form-urlencoded" \
      -d "user_id=${TEST_USER}" \
      -d "password=${TEST_PASS}")
 
-# 💡 修正ポイント: 
-# コード側が `access_token` というキー名で JWT を返してくるため、それを抽出します
+# `access_token` というキー名で返ってくる JWT を抽出
 JWT_TOKEN=$(echo "$AUTH_RESPONSE" | jq -r '.access_token // empty')
 
 if [ -z "$JWT_TOKEN" ] || [ "$JWT_TOKEN" == "null" ]; then
@@ -60,16 +54,23 @@ echo -e "    Token (冒頭のみ): ${CYAN}${JWT_TOKEN:0:30}...${NC}"
 # -------------------------------------------------------------------------
 echo -e "\n${YELLOW}[STEP 2] 業務サーバー (${APP_URL}) からアプリケーションデータを取得します...${NC}"
 echo -e "🔄 テナント「${TEST_TENANT}」の隔離データ（Products）をリクエスト中..."
+echo -e "💡 原因特定のため、HTTPヘッダー情報（-i）を含めて出力します。"
 
-# Authorization ヘッダーに Bearer トークンを載せ、マルチテナント識別用のヘッダー（またはJWT内解決）を添えてリクエスト
-APP_RESPONSE=$(curl -s -X GET "${APP_URL}/api/products" \
+# 💡 変更ポイント: `-s` に `-i` を追加して、HTTPステータスコードやエラーヘッダーを可視化
+APP_RESPONSE=$(curl -s -i -X GET "${APP_URL}/api/products" \
      -H "Authorization: Bearer ${JWT_TOKEN}" \
      -H "X-Tenant-Id: ${TEST_TENANT}" \
      -H "Content-Type: application/json")
 
-echo -e "${GREEN}  └ 業務サーバー返答 (取得データ):${NC}"
+echo -e "${GREEN}  └ 業務サーバー返答 (ステータス・ヘッダー・データ):${NC}"
 echo -e "${CYAN}------------------------------------------------------${NC}"
-echo "$APP_RESPONSE" | jq . 2>/dev/null || echo "$APP_RESPONSE"
+# レスポンス全体（ヘッダー＋ボディ）をそのまま出力
+echo "$APP_RESPONSE"
 echo -e "${CYAN}------------------------------------------------------${NC}"
 
-echo -e "\n${GREEN}🎉 一連の認証・データ閲覧シーケンスの検証が完了しました。${NC}"
+# 簡易的なステータスチェック判定
+if echo "$APP_RESPONSE" | grep -q "HTTP/1.1 200" || echo "$APP_RESPONSE" | grep -q "HTTP/2 200"; then
+    echo -e "\n${GREEN}🎉 一連の認証・データ閲覧シーケンスの検証が正常に完了しました。${NC}"
+else
+    echo -e "\n${RED}⚠️ 業務サーバーが 200 OK 以外の応答を返しました。上記のヘッダー出力を確認してください。${NC}"
+fi

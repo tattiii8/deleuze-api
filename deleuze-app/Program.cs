@@ -22,11 +22,19 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         options.Authority = "http://deleuze-auth:8080";
-        options.RequireHttpsMetadata = false;
+        options.RequireHttpsMetadata = false; // 開発環境・ローカルクラスターのためHTTPを許可
+        
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateAudience = false,
-            ValidateIssuer = true
+            ValidateIssuer = true, // Issuer検証は有効に維持してセキュアに保つ
+            
+            // ★ 修正ポイント: コンテナ間URLと外側のホストIP、どちらのトークンも正当な発行元として受け入れる
+            ValidIssuers = new[]
+            {
+                "http://deleuze-auth:8080",
+                "http://192.168.8.112:5002"
+            }
         };
     });
 builder.Services.AddAuthorization();
@@ -49,8 +57,8 @@ var app = builder.Build();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// 5. ヘルスチェックエンドポイント
-app.MapHealthChecks("/health");
+// 5. ヘルスチェックエンドポイント（スクリプトの /healthz と同期）
+app.MapHealthChecks("/healthz");
 
 // 6. テナント別データ取得API
 app.MapGet("/api/products", async (AppDbContext db, ITenantProvider tenantProvider) =>
