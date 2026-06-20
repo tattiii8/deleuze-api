@@ -1,4 +1,7 @@
-namespace MultiTenantApp.Services;
+using Microsoft.AspNetCore.Http;
+using System;
+
+namespace deleuze_app.Services;
 
 public interface ITenantProvider 
 { 

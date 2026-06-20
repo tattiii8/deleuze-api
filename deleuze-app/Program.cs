@@ -1,7 +1,15 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using System;
+using deleuze_app.Models;
+using deleuze_app.Services;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -31,9 +39,9 @@ builder.Services.AddDbContext<AppDbContext>((sp, options) =>
            .ReplaceService<IModelCacheKeyFactory, TenantModelCacheKeyFactory>();
 });
 
-// 4. ヘルスチェック（DB接続チェック含む）の登録
+// 4. ヘルスチェックの登録（カスタムクラスを使って型安全にDI解決）
 builder.Services.AddHealthChecks()
-    .AddNpgsql(connectionString ?? throw new InvalidOperationException("Connection string not found."));
+    .AddCheck<DatabaseHealthCheck>("postgres-db");
 
 var app = builder.Build();
 
@@ -41,7 +49,7 @@ var app = builder.Build();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// 5. ヘルスチェックエンドポイント (認証不要が一般的)
+// 5. ヘルスチェックエンドポイント
 app.MapHealthChecks("/healthz");
 
 // 6. テナント別データ取得API

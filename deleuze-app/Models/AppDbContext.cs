@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using MultiTenantApp.Services;
+using deleuze_app.Services;
 
-namespace MultiTenantApp.Models;
+namespace deleuze_app.Models;
 
 public class AppDbContext : DbContext
 {

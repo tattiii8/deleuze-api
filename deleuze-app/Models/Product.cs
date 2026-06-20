@@ -1,4 +1,4 @@
-namespace MultiTenantApp.Models;
+namespace deleuze_app.Models;
 
 public class Product 
 { 
