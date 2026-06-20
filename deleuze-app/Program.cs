@@ -21,21 +21,19 @@ builder.Services.AddScoped<ITenantProvider, HttpHeaderTenantProvider>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        // 💡 鍵（JWKS）を取得しにいくコンテナ内バックエンドルート
-        options.Authority = "http://deleuze-auth:8080";
-        options.RequireHttpsMetadata = false; // 開発・ローカルクラスター環境のためHTTPを許可
-        
+        // ★ 修正ポイント: コンテナ内から認証サーバーの鍵（JWKS）を取得できる有効なルートに書き換える
+        // bridgeグループ内、またはホスト経由でアクセス可能なURLを指定します
+        options.Authority = "http://192.168.8.112:5002"; 
+        options.RequireHttpsMetadata = false; 
+
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateAudience = false,
-            
-            // ★ 本番仕様の厳格検証をすべて有効化
             ValidateIssuer = true,
-            ValidateIssuerSigningKey = true, // 認証サーバーから取得した公開鍵による署名検証を必須にする
-            ValidateLifetime = true,         // トークンの有効期限チェックを必須にする
+            ValidateIssuerSigningKey = true, 
+            ValidateLifetime = true,
 
-            // ★ 認証サーバーの環境変数 (AUTH_EXTERNAL_URL) から払い出される、
-            // 外側の正規URLを「正当な発行元」としてホワイトリストに指定
+            // 認証サーバーの AUTH_EXTERNAL_URL と一致させる
             ValidIssuers = new[]
             {
                 "http://192.168.8.112:5002"

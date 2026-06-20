@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("deleuze-app")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6425b6bd488a9c964c726ec112c501b3e50620e7")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+019dedee882240b1957c1a6580c506f9ae2f6302")]
 [assembly: System.Reflection.AssemblyProductAttribute("deleuze-app")]
 [assembly: System.Reflection.AssemblyTitleAttribute("deleuze-app")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
