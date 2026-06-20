@@ -9,31 +9,46 @@ namespace DeleuzeMng.Data
     {
         public static async Task EnsureSeedDataAsync(string connectionString)
         {
-            try
-            {
-                using var connection = new NpgsqlConnection(connectionString);
-                await connection.OpenAsync();
+            int retryCount = 0;
+            const int maxRetries = 5;
+            const int delayMilliseconds = 3000;
 
-                // 全テナントの認証情報を横断管理する共通の Users テーブルを定義
-                var createTableSql = @"
-                    CREATE TABLE IF NOT EXISTS public.""Users"" (
-                        ""Id"" SERIAL PRIMARY KEY,
-                        ""LoginId"" VARCHAR(100) NOT NULL UNIQUE,
-                        ""Password"" VARCHAR(255) NOT NULL,
-                        ""TenantId"" VARCHAR(100) NOT NULL,
-                        ""CreatedAt"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                    );";
-
-                await connection.ExecuteAsync(createTableSql);
-                
-                // コンテナの標準出力（Nomadのログ）に刻まれるメッセージ
-                Console.WriteLine("[INIT] public.\"Users\" テーブルの整合性を確認・自動生成しました。");
-            }
-            catch (Exception ex)
+            while (retryCount < maxRetries)
             {
-                Console.Error.WriteLine($"[INIT ERROR] データベースの初期化に失敗しました: {ex.Message}");
-                // 必要に応じて、ここでアプリケーションの起動を完全に停止させたい場合は rethrow します
-                // throw;
+                try
+                {
+                    using var connection = new NpgsqlConnection(connectionString);
+                    await connection.OpenAsync();
+
+                    // 💡 カラム名を ""Password"" から ""PasswordHash"" に修正（Service側と一致させる）
+                    var createTableSql = @"
+                        CREATE TABLE IF NOT EXISTS public.""Users"" (
+                            ""Id"" SERIAL PRIMARY KEY,
+                            ""LoginId"" VARCHAR(100) NOT NULL UNIQUE,
+                            ""PasswordHash"" VARCHAR(255) NOT NULL, 
+                            ""TenantId"" VARCHAR(100) NOT NULL,
+                            ""CreatedAt"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                        );";
+
+                    await connection.ExecuteAsync(createTableSql);
+                    
+                    Console.WriteLine("[INIT-SUCCESS] public.\"Users\" テーブルの整合性を確認・自動生成しました。");
+                    return; // 💡 成功したら処理を抜ける
+                }
+                catch (Exception ex)
+                {
+                    retryCount++;
+                    Console.Error.WriteLine($"[INIT-RETRY] データベース接続に失敗しました。{delayMilliseconds / 1000}秒後に再試行します ({retryCount}/{maxRetries}): {ex.Message}");
+                    
+                    if (retryCount >= maxRetries)
+                    {
+                        Console.Error.WriteLine("[INIT-FATAL-ERROR] リトライ上限に達したため、初期化を断念します。");
+                        // 起動を完全にストップさせてNomadに再起動を委ねる場合は rethrow
+                        throw;
+                    }
+
+                    await Task.Delay(delayMilliseconds);
+                }
             }
         }
     }
