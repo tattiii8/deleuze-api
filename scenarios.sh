@@ -1,46 +1,75 @@
 #!/bin/bash
 
-BLUE='\033[0;34m'
+# カラー出力定義
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
 YELLOW='\033[0;33m'
-MAGENTA='\033[0;35m'
+RED='\033[0;31m'
 NC='\033[0m'
 
-echo -e "${BLUE}======================================================${NC}"
-echo -e "${BLUE}   マルチテナント・本番ログインフロー完全観察スクリプト${NC}"
-echo -e "${BLUE}======================================================${NC}"
+# 💡 Nomadのエンドポイント定義
+AUTH_URL="${AUTH_URL:-http://192.168.8.112:5002}"
+APP_URL="${APP_URL:-http://192.168.8.112:5001}"
 
-# ─── STEP 1 ───
-echo -e "\n${CYAN}[STEP 1: クライアント ➡️ 認証サーバー (/connect/token)]${NC}"
-echo -e "${YELLOW}要求: tatsuki ユーザーとしてログインを試みます。${NC}"
+# テスト用ダミーデータ（プロビジョニング済みのデータに合わせて調整してください）
+TEST_USER="gilles"
+TEST_PASS="philosophyPass1" # 👈 "password" から実データに変更
+TEST_TENANT="deleuze"
 
-# 生パスワード文字列（エスケープ付き）で認証DBへアタック
-HASH_PASS="\$2a\$11\$R9h/lSVOEbvNySGsU.1vQuNIF7L6k6.ZHeMIFbN60D3Uf3VPh3.12"
-RESPONSE=$(curl -s -X POST http://localhost:5002/connect/token \
+echo -e "${CYAN}======================================================${NC}"
+echo -e "${CYAN}   Project Deleuze - 認証 ＆ データ閲覧 エンドツーエンド検証${NC}"
+echo -e "${CYAN}======================================================${NC}"
+
+# 前提条件チェック (jq コマンドの有無)
+if ! command -v jq &> /dev/null; then
+    echo -e "${RED}[ERROR] JSONのパースに 'jq' コマンドが必要です。インストールしてください。${NC}"
+    exit 1
+fi
+
+# -------------------------------------------------------------------------
+# 🔑 STEP 1: 認証サーバー (deleuze-auth) へログインリクエスト
+# -------------------------------------------------------------------------
+echo -e "\n${YELLOW}[STEP 1] 認証サーバー (${AUTH_URL}) でログインを実行します...${NC}"
+echo -e "🔄 ユーザー: ${TEST_USER} | OIDC トークンエンドポイントへリクエスト中..."
+
+# 💡 修正ポイント: 
+# 1. パスを /api/auth/login から /connect/token に変更
+# 2. -H "Content-Type: application/x-www-form-urlencoded" に変更
+# 3. データを JSON ではなく -d "key=value" のフォーム形式に変更
+# 4. コード側のキー名 (user_id, password) に合わせて送信
+AUTH_RESPONSE=$(curl -s -X POST "${AUTH_URL}/connect/token" \
      -H "Content-Type: application/x-www-form-urlencoded" \
-     -d "user_id=tatsuki" \
-     -d "password=$HASH_PASS")
+     -d "user_id=${TEST_USER}" \
+     -d "password=${TEST_PASS}")
 
-echo -e "${GREEN}▼ 認証サーバーからのレスポンス (JWTトークンを発行):${NC}"
-echo "$RESPONSE" | json_pp 2>/dev/null || echo "$RESPONSE"
+# 💡 修正ポイント: 
+# コード側が `access_token` というキー名で JWT を返してくるため、それを抽出します
+JWT_TOKEN=$(echo "$AUTH_RESPONSE" | jq -r '.access_token // empty')
 
-TOKEN=$(echo $RESPONSE | sed -E 's/.*"access_token":"([^"]+)".*/\1/')
+if [ -z "$JWT_TOKEN" ] || [ "$JWT_TOKEN" == "null" ]; then
+    echo -e "${RED}[ERROR] ログインに失敗しました。サーバー返答:${NC}"
+    echo "$AUTH_RESPONSE" | jq . 2>/dev/null || echo "$AUTH_RESPONSE"
+    exit 1
+fi
 
-# ─── STEP 2 ───
-echo -e "\n${CYAN}[STEP 2: クライアント ➡️ APIサーバー (/api/products)]${NC}"
-echo -e "${YELLOW}要求: 取得したJWTをヘッダーに乗せ、betaテナントのデータを要求します。${NC}"
-echo -e "${MAGENTA}--- クライアントが送信したHTTPヘッダー ---${NC}"
-echo "GET /api/products HTTP/1.1"
-echo "Authorization: Bearer ${TOKEN:0:30}..."
-echo "X-Tenant-ID: beta"
-echo -e "${MAGENTA}---------------------------------------${NC}"
+echo -e "${GREEN}  └ ログイン成功！OIDC準拠のJWTトークンを取得しました。${NC}"
+echo -e "    Token (冒頭のみ): ${CYAN}${JWT_TOKEN:0:30}...${NC}"
 
-API_RESPONSE=$(curl -s -H "Authorization: Bearer $TOKEN" \
-     -H "X-Tenant-ID: beta" \
-     http://localhost:5001/api/products)
+# -------------------------------------------------------------------------
+# 📦 STEP 2: 取得したJWTを使ってアプリケーションサーバー (deleuze-app) からデータ取得
+# -------------------------------------------------------------------------
+echo -e "\n${YELLOW}[STEP 2] 業務サーバー (${APP_URL}) からアプリケーションデータを取得します...${NC}"
+echo -e "🔄 テナント「${TEST_TENANT}」の隔離データ（Products）をリクエスト中..."
 
-echo -e "${GREEN}▼ APIサーバーからの最終レスポンス:${NC}"
-echo "$API_RESPONSE"
+# Authorization ヘッダーに Bearer トークンを載せ、マルチテナント識別用のヘッダー（またはJWT内解決）を添えてリクエスト
+APP_RESPONSE=$(curl -s -X GET "${APP_URL}/api/products" \
+     -H "Authorization: Bearer ${JWT_TOKEN}" \
+     -H "X-Tenant-Id: ${TEST_TENANT}" \
+     -H "Content-Type: application/json")
 
-echo -e "\n${BLUE}======================================================${NC}"
+echo -e "${GREEN}  └ 業務サーバー返答 (取得データ):${NC}"
+echo -e "${CYAN}------------------------------------------------------${NC}"
+echo "$APP_RESPONSE" | jq . 2>/dev/null || echo "$APP_RESPONSE"
+echo -e "${CYAN}------------------------------------------------------${NC}"
+
+echo -e "\n${GREEN}🎉 一連の認証・データ閲覧シーケンスの検証が完了しました。${NC}"
