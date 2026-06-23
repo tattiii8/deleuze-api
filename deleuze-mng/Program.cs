@@ -6,6 +6,12 @@ using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// 💡 ログ設定を強制追加（コンテナ内でも Information ログを確実に出力させる）
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.SetMinimumLevel(LogLevel.Information);
+builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning); // 既定のシステムログは静かにする
+
 // 1. データベース接続文字列の取得
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
     ?? throw new InvalidOperationException("Connection string not found.");
@@ -34,6 +40,7 @@ app.Use(async (context, next) =>
     // マネジメントAPIのルート（/api/mng/）のみ認証を必須にする
     if (context.Request.Path.StartsWithSegments("/api/mng"))
     {
+        // 💡 ログレベルを固定したため、これが確実にNomadに出力されます
         app.Logger.LogInformation("[MNG-AUTH] 管理APIへのアクセスを検知しました: {Path} ({Method})", context.Request.Path, context.Request.Method);
 
         if (!context.Request.Headers.TryGetValue("Authorization", out var extractedToken))
@@ -60,7 +67,7 @@ app.Use(async (context, next) =>
 
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             await context.Response.WriteAsJsonAsync(new { error = $"認証トークンが無効、または有効期限切れです。({reason})" });
-            return; // 🚨 ここで確実に遮断
+            return; 
         }
 
         app.Logger.LogInformation("[MNG-AUTH-SUCCESS] トークン検証に成功しました。処理を継続します。");
