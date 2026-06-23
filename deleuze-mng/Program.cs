@@ -51,7 +51,7 @@ app.Use(async (context, next) =>
         string maskedToken = rawToken.Length > 25 ? $"{rawToken[..25]}..." : rawToken;
         app.Logger.LogInformation("[MNG-AUTH] トークンを受信しました: {Token}", maskedToken);
 
-        // 💡 ログ出力を連動させるため、検証結果のステータスを受け取るように拡張
+        // 検証結果のステータスと理由を受け取る
         var (isValid, reason) = ValidateDynamicTokenWithReason(rawToken, apiSecret, TimeSpan.FromMinutes(5));
 
         if (!isValid)
@@ -60,7 +60,7 @@ app.Use(async (context, next) =>
 
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             await context.Response.WriteAsJsonAsync(new { error = $"認証トークンが無効、または有効期限切れです。({reason})" });
-            return;
+            return; // 🚨 ここで確実に遮断
         }
 
         app.Logger.LogInformation("[MNG-AUTH-SUCCESS] トークン検証に成功しました。処理を継続します。");
@@ -92,7 +92,7 @@ app.MapPost("/api/mng/users", async (UserRegistrationRequest req, TenantManageme
 app.Run();
 
 // =========================================================================
-// 🔑 トークン検証ロジック (エラー理由返却版)
+// 🔑 トークン検証ロジック (ヘルパー関数)
 // =========================================================================
 static (bool IsValid, string Reason) ValidateDynamicTokenWithReason(string rawToken, string secretKey, TimeSpan validDuration)
 {
@@ -140,7 +140,7 @@ static (bool IsValid, string Reason) ValidateDynamicTokenWithReason(string rawTo
         var tokenTime = DateTimeOffset.FromUnixTimeSeconds(unixTimestamp);
         var now = DateTimeOffset.UtcNow;
 
-        // クロックのズレを許容（未来5分〜有効期限切れをチェック）
+        // クロックのズレを考慮（未来5分〜有効期限切れをチェック）
         if (tokenTime > now.AddMinutes(5))
         {
             return (false, $"トークンの時刻が未来すぎます (Token: {tokenTime}, Server: {now})。");
