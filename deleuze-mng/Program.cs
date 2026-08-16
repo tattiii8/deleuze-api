@@ -85,6 +85,7 @@ app.MapPost("/api/mng/tenants", async (TenantCreationRequest req, TenantManageme
 });
 
 // 🛠️ 管理エンドポイント2: ユーザーの新規登録
+// 🛠️ 管理エンドポイント2: ユーザーの新規登録（テナント自動プロビジョニング機能付き）
 app.MapPost("/api/mng/users", async (UserRegistrationRequest req, TenantManagementService mngService) =>
 {
     if (string.IsNullOrWhiteSpace(req.LoginId) || string.IsNullOrWhiteSpace(req.Password) || string.IsNullOrWhiteSpace(req.TenantId))
@@ -92,8 +93,23 @@ app.MapPost("/api/mng/users", async (UserRegistrationRequest req, TenantManageme
         return Results.BadRequest("すべての項目を入力してください。");
     }
 
-    await mngService.RegisterUserAsync(req.LoginId, req.Password, req.TenantId.ToLower());
-    return Results.Ok(new { message = $"ユーザー '{req.LoginId}' をテナント '{req.TenantId}' に登録しました（BCrypt暗号化済）。" });
+    string normalizedTenantId = req.TenantId.ToLower();
+
+    try
+    {
+        // ① 先にテナント（DBスキーマ・テーブル・初期データ）を作成
+        // ※ CreateTenantAsync 内に 'CREATE SCHEMA IF NOT EXISTS' があるため、既に存在していても安全に実行されます
+        await mngService.CreateTenantAsync(normalizedTenantId);
+
+        // ② ユーザーを登録
+        await mngService.RegisterUserAsync(req.LoginId, req.Password, normalizedTenantId);
+
+        return Results.Ok(new { message = $"テナント '{normalizedTenantId}' の構築およびユーザー '{req.LoginId}' の登録が完了しました。" });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"処理中にエラーが発生しました: {ex.Message}");
+    }
 });
 
 app.Run();
