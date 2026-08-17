@@ -12,11 +12,13 @@ namespace DeleuzeMng.Services
         private readonly string _appConnString;
         private readonly string _authConnString;
 
-        // PostgreSQL の識別子制限(63バイト)を踏まえ、テナントIDは
-        // 「小文字英字始まり + 英数字/アンダースコアのみ + 3〜63文字」に制限する。
-        // ここで弾くことで、スキーマ名へのSQLインジェクションを防止する。
+        // PostgreSQL の識別子制限(63バイト)を踏まえ、
+        // スキーマ名を 「app_ + 小文字英字始まり + 英数字/アンダースコア」とし、
+        // 全体で3〜63文字に収まるように制限する。
+        // ※ プレフィックス 'app_' (4文字) を含むため、ユーザーが入力するテナントID部分は短めにするか、
+        //    正規表現全体の長さを調整します。ここでは 「app_」に続けて英数字アンダースコア、全体で3〜63文字に制限。
         private static readonly Regex ValidTenantIdPattern =
-            new(@"^[a-z][a-z0-9_]{2,62}$", RegexOptions.Compiled);
+            new(@"^[a-z][a-z0-9_]{2,58}$", RegexOptions.Compiled);
 
         public TenantManagementService(IConfiguration configuration)
         {
@@ -28,57 +30,58 @@ namespace DeleuzeMng.Services
         }
 
         /// <summary>
-        /// テナント用のスキーマをアプリケーションDB側に作成する(冪等)。
+        /// テナント用のスキーマ (app_{tenantId}) をアプリケーションDB側に作成する(冪等)。
         /// 既に存在する場合は何もしない。
         /// </summary>
         public async Task CreateTenantAsync(string tenantId)
         {
             EnsureValidTenantId(tenantId);
 
+            // スキーマ名を app_{tenantId} に組み立てる
+            string schemaName = $"app_{tenantId}";
+
             await using var appConn = new NpgsqlConnection(_appConnString);
             await appConn.OpenAsync();
 
             var alreadyExists = await appConn.ExecuteScalarAsync<bool>(
-                "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = @tenantId);",
-                new { tenantId });
+                "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = @schemaName);",
+                new { schemaName });
 
-            // tenantId は EnsureValidTenantId で英数字・アンダースコアのみに限定済みのため、
-            // ここでの動的SQL組み立ては安全(パラメータバインドが使えないDDLのための例外的対応)。
-            var createSchemaCmd = new NpgsqlCommand($"CREATE SCHEMA IF NOT EXISTS \"{tenantId}\";", appConn);
+            // 動的SQL組み立て（schemaName はバリデーション済みのため安全）
+            var createSchemaCmd = new NpgsqlCommand($"CREATE SCHEMA IF NOT EXISTS \"{schemaName}\";", appConn);
             await createSchemaCmd.ExecuteNonQueryAsync();
 
             if (!alreadyExists)
             {
-                await InitializeTenantTablesAsync(appConn, tenantId);
+                await InitializeTenantTablesAsync(appConn, schemaName);
             }
         }
 
         /// <summary>
         /// 新規テナントのスキーマに初期テーブル群を作成する。
-        /// 実際の運用では Flyway 等のマイグレーションツールに置き換えることを推奨。
         /// </summary>
-        private static async Task InitializeTenantTablesAsync(NpgsqlConnection appConn, string tenantId)
-        {  
+        private static async Task InitializeTenantTablesAsync(NpgsqlConnection appConn, string schemaName)
+        {
             // 各テーブル作成SQLをセミコロンで区切って定義する。
             var sql = $@"
                 -- 1. カテゴリマスタ
-                CREATE TABLE ""{tenantId}"".""Categories"" (
+                CREATE TABLE ""{schemaName}"".""Categories"" (
                     ""Id"" SERIAL PRIMARY KEY,
                     ""Name"" VARCHAR(100) NOT NULL,
                     ""CreatedAt"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 );
 
                 -- 2. 商品マスタ
-                CREATE TABLE ""{tenantId}"".""Products"" (
+                CREATE TABLE ""{schemaName}"".""Products"" (
                     ""Id"" SERIAL PRIMARY KEY,
-                    ""CategoryId"" INTEGER REFERENCES ""{tenantId}"".""Categories""(""Id""),
+                    ""CategoryId"" INTEGER REFERENCES ""{schemaName}"".""Categories""(""Id""),
                     ""Name"" VARCHAR(255) NOT NULL,
                     ""Price"" DECIMAL(12, 2) DEFAULT 0,
                     ""CreatedAt"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 );
 
                 -- 3. 顧客マスタ
-                CREATE TABLE ""{tenantId}"".""Customers"" (
+                CREATE TABLE ""{schemaName}"".""Customers"" (
                     ""Id"" SERIAL PRIMARY KEY,
                     ""Name"" VARCHAR(100) NOT NULL,
                     ""Email"" VARCHAR(255),
@@ -86,18 +89,18 @@ namespace DeleuzeMng.Services
                 );
 
                 -- 4. 注文トランザクション
-                CREATE TABLE ""{tenantId}"".""Orders"" (
+                CREATE TABLE ""{schemaName}"".""Orders"" (
                     ""Id"" SERIAL PRIMARY KEY,
-                    ""CustomerId"" INTEGER NOT NULL REFERENCES ""{tenantId}"".""Customers""(""Id""),
+                    ""CustomerId"" INTEGER NOT NULL REFERENCES ""{schemaName}"".""Customers""(""Id""),
                     ""OrderDate"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                     ""TotalAmount"" DECIMAL(12, 2) DEFAULT 0
                 );
 
                 -- 5. 注文明細
-                CREATE TABLE ""{tenantId}"".""OrderItems"" (
+                CREATE TABLE ""{schemaName}"".""OrderItems"" (
                     ""Id"" SERIAL PRIMARY KEY,
-                    ""OrderId"" INTEGER NOT NULL REFERENCES ""{tenantId}"".""Orders""(""Id"") ON DELETE CASCADE,
-                    ""ProductId"" INTEGER NOT NULL REFERENCES ""{tenantId}"".""Products""(""Id""),
+                    ""OrderId"" INTEGER NOT NULL REFERENCES ""{schemaName}"".""Orders""(""Id"") ON DELETE CASCADE,
+                    ""ProductId"" INTEGER NOT NULL REFERENCES ""{schemaName}"".""Products""(""Id""),
                     ""Quantity"" INTEGER NOT NULL,
                     ""UnitPrice"" DECIMAL(12, 2) NOT NULL
                 );
@@ -135,7 +138,6 @@ namespace DeleuzeMng.Services
             await using var authConn = new NpgsqlConnection(_authConnString);
             await authConn.OpenAsync();
 
-            // 既に同じ LoginId が存在しないか事前チェック(UNIQUE制約違反の生の例外を避ける)
             var loginIdExists = await authConn.ExecuteScalarAsync<bool>(
                 "SELECT EXISTS (SELECT 1 FROM public.\"Users\" WHERE \"LoginId\" = @loginId);",
                 new { loginId });
@@ -157,9 +159,9 @@ namespace DeleuzeMng.Services
             if (string.IsNullOrWhiteSpace(tenantId) || !ValidTenantIdPattern.IsMatch(tenantId))
             {
                 throw new ArgumentException(
-                    $"不正なテナントID形式です。小文字英数字とアンダースコアのみ、3〜63文字で指定してください: '{tenantId}'",
+                    $"不正なテナントID形式です。小文字英数字とアンダースコアのみ、3〜59文字で指定してください（プレフィックス app_ が自動付与されます）: '{tenantId}'",
                     nameof(tenantId));
             }
         }
     }
-} 
+}
