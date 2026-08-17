@@ -1,18 +1,32 @@
 version: '3.8'
 
 services:
-  deleuze-db:
+  # 1. 認証用データベース
+  deleuze-auth-db:
     image: postgres:16-alpine
-    container_name: deleuze-db
+    container_name: deleuze-auth-db
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: deleuzedb
+      POSTGRES_DB: deleuze-auth
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - auth-pgdata:/var/lib/postgresql/data
+
+  # 2. 業務アプリ用データベース（マルチテナント）
+  deleuze-app-db:
+    image: postgres:16-alpine
+    container_name: deleuze-app-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: deleuze-app
+    ports:
+      - "5433:5432" # ホスト側のポートを5433にずらしてポート競合を回避
+    volumes:
+      - app-pgdata:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql # アプリ用DBの初期化が必要な場合
 
   deleuze-auth:
     image: deleuze-auth
@@ -25,9 +39,10 @@ services:
       - "5002:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__DefaultConnection=Host=deleuze-db;Database=deleuzedb;Username=postgres;Password=password
+      # 認証APIは認証DBのみに接続する
+      - ConnectionStrings__DefaultConnection=Host=deleuze-auth-db;Database=authdb;Username=postgres;Password=password
     depends_on:
-      - deleuze-db
+      - deleuze-auth-db
 
   deleuze-app:
     image: deleuze-app
@@ -40,9 +55,10 @@ services:
       - "5001:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__DefaultConnection=Host=deleuze-db;Database=deleuzedb;Username=postgres;Password=password
+      # 業務アプリAPIは業務アプリDBのみに接続する
+      - ConnectionStrings__DefaultConnection=Host=deleuze-app-db;Database=appdb;Username=postgres;Password=password
     depends_on:
-      - deleuze-db
+      - deleuze-app-db
       - deleuze-auth
 
   deleuze-mng:
@@ -56,9 +72,14 @@ services:
       - "5003:8080" # 管理用APIポート
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__DefaultConnection=Host=deleuze-db;Database=deleuzedb;Username=postgres;Password=password
+      # 管理APIは、テナントプロビジョニングのために「両方のDB」へアクセスできるように設定を分ける
+      - ConnectionStrings__AuthConnection=Host=deleuze-auth-db;Database=authdb;Username=postgres;Password=password
+      - ConnectionStrings__AppConnection=Host=deleuze-app-db;Database=appdb;Username=postgres;Password=password
     depends_on:
-      - deleuze-db
+      - deleuze-auth-db
+      - deleuze-app-db
 
 volumes:
-  pgdata:
+  # データボリュームも分離
+  deleuze-auth-pgdata:
+  deleuze-app-pgdata:

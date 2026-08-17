@@ -3,7 +3,6 @@ name: CI to AWS ECR
 on:
   push:
     branches: [ main ]
-    # 💡 ここで監視対象のディレクトリを指定します
     paths:
       - 'deleuze-auth/**'
       - 'deleuze-app/**'
@@ -15,7 +14,6 @@ env:
   ECR_REGISTRY: 871950640338.dkr.ecr.ap-northeast-1.amazonaws.com
 
 jobs:
-  # 🔍 まず、どのディレクトリに変更があったかをチェックする共通ジョブ
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -32,9 +30,8 @@ jobs:
           app:  ['deleuze-app/**']
           mng:  ['deleuze-mng/**']
 
-  # 🚀 ビルド＆プッシュを実行するメインジョブ
   build-and-push:
-    needs: changes # 変更検知ジョブの完了を待つ
+    needs: changes
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
@@ -57,37 +54,34 @@ jobs:
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
 
-    # 🔗 1. deleuze-auth (authに変更があった場合、または初回等で全体を動かしたい場合のみ実行)
     - name: Build and Push deleuze-auth
       if: ${{ needs.changes.outputs.auth == 'true' }}
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-auth
-        platforms: linux/amd64
+        platforms: linux/arm64
         push: true
         tags: |
           ${{ env.ECR_REGISTRY }}/deleuze-auth:latest
           ${{ env.ECR_REGISTRY }}/deleuze-auth:${{ github.sha }}
 
-    # 🔗 2. deleuze-app
     - name: Build and Push deleuze-app
       if: ${{ needs.changes.outputs.app == 'true' }}
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-app
-        platforms: linux/amd64
+        platforms: linux/arm64
         push: true
         tags: |
           ${{ env.ECR_REGISTRY }}/deleuze-app:latest
           ${{ env.ECR_REGISTRY }}/deleuze-app:${{ github.sha }}
 
-    # 🔗 3. deleuze-mng
     - name: Build and Push deleuze-mng
       if: ${{ needs.changes.outputs.mng == 'true' }}
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-mng
-        platforms: linux/amd64
+        platforms: linux/arm64
         push: true
         tags: |
           ${{ env.ECR_REGISTRY }}/deleuze-mng:latest

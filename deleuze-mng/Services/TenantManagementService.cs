@@ -1,64 +1,46 @@
-using Dapper;
 using Npgsql;
+using BCrypt.Net;
 
 namespace DeleuzeMng.Services;
 
 public class TenantManagementService
-
 {
-    private readonly string _connectionString;
+    private readonly IConfiguration _configuration;
 
-    public TenantManagementService(string connectionString)
+    public TenantManagementService(IConfiguration configuration)
     {
-        _connectionString = connectionString;
+        _configuration = configuration;
     }
 
-    // 1. テナントの動的作成（物理スキーマ ＆ テーブルの自動生成）
-    public async Task CreateTenantAsync(string tenantId)
+    public async Task CreateTenantAsync(string tenantId, string adminLoginId, string adminPassword)
     {
-        using var conn = new NpgsqlConnection(_connectionString);
-        await conn.OpenAsync();
+        var appDbConnString = _configuration.GetConnectionString("AppConnection");
+        var authDbConnString = _configuration.GetConnectionString("AuthConnection");
 
-        using var tx = await conn.BeginTransactionAsync();
-        try
-        {
-            // ① 動的にスキーマを作成 (SQLインジェクション対策として英数字チェックを挟むのが本番では推奨)
-            await conn.ExecuteAsync($@"CREATE SCHEMA IF NOT EXISTS ""{tenantId}"";", transaction: tx);
-
-            // ② 新スキーマ内に Products テーブルを動的に作成
-            await conn.ExecuteAsync($@"
-                CREATE TABLE IF NOT EXISTS ""{tenantId}"".""Products"" (
-                    ""Id"" SERIAL PRIMARY KEY,
-                    ""Name"" VARCHAR(256) NOT NULL
-                );", transaction: tx);
-
-            // ③ 初期データの投入
-            await conn.ExecuteAsync($@"
-                INSERT INTO ""{tenantId}"".""Products"" (""Name"") 
-                VALUES ('{tenantId}専用の初期データ');", transaction: tx);
-
-            await tx.CommitAsync();
-        }
-        catch
-        {
-            await tx.RollbackAsync();
-            throw;
-        }
-    }
-
-    // 2. 新規ユーザーの登録（BCryptでのハッシュ化 ＆ 共通DBへのインサート）
-    public async Task RegisterUserAsync(string loginId, string rawPassword, string tenantId)
-    {
-        using var conn = new NpgsqlConnection(_connectionString);
+        // 1. App DB (業務DB) にスキーマを作成
+        await using var appConn = new NpgsqlConnection(appDbConnString);
+        await appConn.OpenAsync();
         
-        // パスワードを安全にハッシュ化 (WorkFactor=11)
-        string passwordHash = BCrypt.Net.BCrypt.HashPassword(rawPassword, workFactor: 11);
+        await using var createSchemaCmd = new NpgsqlCommand($"CREATE SCHEMA IF NOT EXISTS \"{tenantId}\";", appConn);
+        await createSchemaCmd.ExecuteNonQueryAsync();
 
-        var sql = @"
-            INSERT INTO ""public"".""Users"" (""LoginId"", ""PasswordHash"", ""TenantId"")
-            VALUES (@LoginId, @PasswordHash, @TenantId)
-            ON CONFLICT (""LoginId"") DO NOTHING;";
+        // 必要に応じて App DB のマイグレーションスクリプトをここで実行（またはEF Coreの機能を利用）
+        // await using var initTableCmd = new NpgsqlCommand($"CREATE TABLE \"{tenantId}\".\"Products\" (...)", appConn);
+        // await initTableCmd.ExecuteNonQueryAsync();
 
-        await conn.ExecuteAsync(sql, new { LoginId = loginId, PasswordHash = passwordHash, TenantId = tenantId });
+        // 2. Auth DB (認証DB) にユーザーを登録
+        await using var authConn = new NpgsqlConnection(authDbConnString);
+        await authConn.OpenAsync();
+
+        var passwordHash = BCrypt.Net.BCrypt.HashPassword(adminPassword);
+        
+        await using var insertUserCmd = new NpgsqlCommand(
+            "INSERT INTO public.\"Users\" (\"LoginId\", \"PasswordHash\", \"TenantId\") VALUES (@loginId, @hash, @tenantId)", authConn);
+        
+        insertUserCmd.Parameters.AddWithValue("loginId", adminLoginId);
+        insertUserCmd.Parameters.AddWithValue("hash", passwordHash);
+        insertUserCmd.Parameters.AddWithValue("tenantId", tenantId);
+        
+        await insertUserCmd.ExecuteNonQueryAsync();
     }
 }

@@ -1,35 +1,23 @@
-using Microsoft.AspNetCore.Http;
-using System;
+namespace DeleuzeApp.Services;
 
-namespace deleuze_app.Services;
-
-public interface ITenantProvider 
-{ 
-    string GetTenantId(); 
+public interface ITenantProvider
+{
+    string GetTenantId();
 }
 
-public class HttpHeaderTenantProvider : ITenantProvider
+public class TenantProvider : ITenantProvider
 {
     private readonly IHttpContextAccessor _httpContextAccessor;
-    public HttpHeaderTenantProvider(IHttpContextAccessor httpContextAccessor) => _httpContextAccessor = httpContextAccessor;
+
+    public TenantProvider(IHttpContextAccessor httpContextAccessor)
+    {
+        _httpContextAccessor = httpContextAccessor;
+    }
 
     public string GetTenantId()
     {
-        var context = _httpContextAccessor.HttpContext;
-        if (context == null) return "public";
-
-        // ① リクエストヘッダーから取得
-        string? headerTenant = context.Request.Headers.TryGetValue("X-Tenant-ID", out var tId) ? tId.ToString() : null;
-
-        // ② JWTトークンから取得
-        var tokenTenant = context.User.FindFirst("tenant_id")?.Value;
-
-        // ③ 不正アクセスのブロック
-        if (headerTenant != null && tokenTenant != null && headerTenant != tokenTenant)
-        {
-            throw new UnauthorizedAccessException("ヘッダーのテナントIDとJWT内のテナントIDが一致しません。");
-        }
-
-        return tokenTenant ?? headerTenant ?? "public";
+        // JWTのクレームから tenant_id を取得。無ければ public スキーマへのフォールバックを想定。
+        var tenantId = _httpContextAccessor.HttpContext?.User?.FindFirst("tenant_id")?.Value;
+        return string.IsNullOrEmpty(tenantId) ? "public" : tenantId;
     }
 }
