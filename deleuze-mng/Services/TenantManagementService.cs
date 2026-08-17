@@ -15,8 +15,6 @@ namespace DeleuzeMng.Services
         // PostgreSQL の識別子制限(63バイト)を踏まえ、
         // スキーマ名を 「app_ + 小文字英字始まり + 英数字/アンダースコア」とし、
         // 全体で3〜63文字に収まるように制限する。
-        // ※ プレフィックス 'app_' (4文字) を含むため、ユーザーが入力するテナントID部分は短めにするか、
-        //    正規表現全体の長さを調整します。ここでは 「app_」に続けて英数字アンダースコア、全体で3〜63文字に制限。
         private static readonly Regex ValidTenantIdPattern =
             new(@"^[a-z][a-z0-9_]{2,58}$", RegexOptions.Compiled);
 
@@ -30,8 +28,8 @@ namespace DeleuzeMng.Services
         }
 
         /// <summary>
-        /// テナント用のスキーマ (app_{tenantId}) をアプリケーションDB側に作成する(冪等)。
-        /// 既に存在する場合は何もしない。
+        /// テナント用のスキーマ (app_{tenantId}) をアプリケーションDB側に作成する。
+        /// 既に存在する場合は InvalidOperationException をスローする。
         /// </summary>
         public async Task CreateTenantAsync(string tenantId)
         {
@@ -47,14 +45,17 @@ namespace DeleuzeMng.Services
                 "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = @schemaName);",
                 new { schemaName });
 
+            // 💡 既に存在する場合はエラーとする
+            if (alreadyExists)
+            {
+                throw new InvalidOperationException($"テナント '{tenantId}' はすでに存在します。");
+            }
+
             // 動的SQL組み立て（schemaName はバリデーション済みのため安全）
             var createSchemaCmd = new NpgsqlCommand($"CREATE SCHEMA IF NOT EXISTS \"{schemaName}\";", appConn);
             await createSchemaCmd.ExecuteNonQueryAsync();
 
-            if (!alreadyExists)
-            {
-                await InitializeTenantTablesAsync(appConn, schemaName);
-            }
+            await InitializeTenantTablesAsync(appConn, schemaName);
         }
 
         /// <summary>

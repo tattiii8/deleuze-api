@@ -41,7 +41,7 @@ builder.Services.AddSwaggerGen(c =>
         Description = "シークレットキーを入力してください。\n例: `Bearer base64Payload:signature` またはそのまま入力",
         Name = "Authorization",
         In = ParameterLocation.Header,
-        Type = SecuritySchemeType.ApiKey, // または SecuritySchemeType.Http
+        Type = SecuritySchemeType.ApiKey,
         Scheme = "Bearer"
     });
 
@@ -74,9 +74,9 @@ await DbInitializer.EnsureSeedDataAsync(authConnectionString);
 // テナントIDのAPI層での事前バリデーション用
 var tenantIdPattern = new Regex(@"^[a-z][a-z0-9_]{2,62}$", RegexOptions.Compiled);
 
-// =========================================================================
+// ==========================================
 // 🔒 動的トークンチェック ＆ ログ出力ミドルウェア
-// =========================================================================
+// ==========================================
 app.Use(async (context, next) =>
 {
     // Swagger UI および関連ドキュメントへのアクセスは認証をスキップ
@@ -121,14 +121,23 @@ app.Use(async (context, next) =>
 // 🛠️ 管理エンドポイント1: テナントの新規作成
 app.MapPost("/api/mng/tenants", async (TenantCreationRequest req, TenantManagementService mngService) =>
 {
-    if (string.IsNullOrWhiteSpace(req.TenantId)) return Results.BadRequest(new { error = "TenantId は必須です。" });
+    if (string.IsNullOrWhiteSpace(req.TenantId)) 
+        return Results.BadRequest(new { error = "TenantId は必須です。" });
+
     string normalizedTenantId = req.TenantId.ToLower();
-    if (!tenantIdPattern.IsMatch(normalizedTenantId)) return Results.BadRequest(new { error = "TenantId は小文字英数字とアンダースコアのみ、3〜63文字で指定してください。" });
+    if (!tenantIdPattern.IsMatch(normalizedTenantId)) 
+        return Results.BadRequest(new { error = "TenantId は小文字英数字とアンダースコアのみ、3〜63文字で指定してください。" });
 
     try
     {
         await mngService.CreateTenantAsync(normalizedTenantId);
         return Results.Ok(new { message = $"テナント '{normalizedTenantId}' のスキーマ隔離環境を構築しました。" });
+    }
+    catch (InvalidOperationException ex)
+    {
+        // 💡 既存テナントが存在する場合: 409 Conflict を返す
+        app.Logger.LogWarning("テナント作成重複エラー: {Message}", ex.Message);
+        return Results.Conflict(new { error = ex.Message });
     }
     catch (Exception ex)
     {
@@ -146,13 +155,20 @@ app.MapPost("/api/mng/users", async (UserRegistrationRequest req, TenantManageme
         return Results.BadRequest(new { error = "すべての項目を入力してください。" });
 
     string normalizedTenantId = req.TenantId.ToLower();
-    if (!tenantIdPattern.IsMatch(normalizedTenantId)) return Results.BadRequest(new { error = "TenantId の形式が不正です。" });
+    if (!tenantIdPattern.IsMatch(normalizedTenantId)) 
+        return Results.BadRequest(new { error = "TenantId の形式が不正です。" });
 
     try
     {
         await mngService.CreateTenantAsync(normalizedTenantId);
         await mngService.RegisterUserAsync(req.LoginId, req.Password, normalizedTenantId);
         return Results.Ok(new { message = $"テナント '{normalizedTenantId}' にユーザー '{req.LoginId}' を登録しました。" });
+    }
+    catch (InvalidOperationException ex)
+    {
+        // 💡 テナント重複・ユーザー重複エラー: 409 Conflict を返す
+        app.Logger.LogWarning("登録重複エラー: {Message}", ex.Message);
+        return Results.Conflict(new { error = ex.Message });
     }
     catch (Exception ex)
     {
@@ -168,7 +184,6 @@ app.Run();
 // トークン検証ロジック
 static (bool IsValid, string Reason) ValidateDynamicTokenWithReason(string rawToken, string secretKey, TimeSpan validDuration)
 {
-    // (既存のロジックをそのまま記載してください)
     if (string.IsNullOrWhiteSpace(rawToken)) return (false, "トークンが空です。");
     if (rawToken.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) rawToken = rawToken[7..].Trim();
     var parts = rawToken.Split(':');
