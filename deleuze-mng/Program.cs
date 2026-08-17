@@ -215,7 +215,7 @@ static (bool IsValid, string Reason) ValidateDynamicTokenWithReason(string rawTo
         // クロックのズレを考慮（未来5分〜有効期限切れをチェック）
         if (tokenTime > now.AddMinutes(5))
         {
-            return (false, "トークンの時刻が未来すぎます。");
+            return (false, "トークンの時刻が現在から5分以上進んだ時刻です。");
         }
 
         if (now - tokenTime > validDuration)

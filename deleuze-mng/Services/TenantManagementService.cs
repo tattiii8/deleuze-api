@@ -58,14 +58,65 @@ namespace DeleuzeMng.Services
         /// 実際の運用では Flyway 等のマイグレーションツールに置き換えることを推奨。
         /// </summary>
         private static async Task InitializeTenantTablesAsync(NpgsqlConnection appConn, string tenantId)
-        {
-            // TODO: 本番運用ではここをマイグレーションスクリプトの適用に置き換える
-            // 例:
-            // var createProductsCmd = new NpgsqlCommand(
-            //     $"CREATE TABLE \"{tenantId}\".\"Products\" (" +
-            //     "\"Id\" SERIAL PRIMARY KEY, \"Name\" VARCHAR(255) NOT NULL);", appConn);
-            // await createProductsCmd.ExecuteNonQueryAsync();
-            await Task.CompletedTask;
+        {  
+            // 各テーブル作成SQLをセミコロンで区切って定義する。
+            var sql = $@"
+                -- 1. カテゴリマスタ
+                CREATE TABLE ""{tenantId}"".""Categories"" (
+                    ""Id"" SERIAL PRIMARY KEY,
+                    ""Name"" VARCHAR(100) NOT NULL,
+                    ""CreatedAt"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+
+                -- 2. 商品マスタ
+                CREATE TABLE ""{tenantId}"".""Products"" (
+                    ""Id"" SERIAL PRIMARY KEY,
+                    ""CategoryId"" INTEGER REFERENCES ""{tenantId}"".""Categories""(""Id""),
+                    ""Name"" VARCHAR(255) NOT NULL,
+                    ""Price"" DECIMAL(12, 2) DEFAULT 0,
+                    ""CreatedAt"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+
+                -- 3. 顧客マスタ
+                CREATE TABLE ""{tenantId}"".""Customers"" (
+                    ""Id"" SERIAL PRIMARY KEY,
+                    ""Name"" VARCHAR(100) NOT NULL,
+                    ""Email"" VARCHAR(255),
+                    ""CreatedAt"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+
+                -- 4. 注文トランザクション
+                CREATE TABLE ""{tenantId}"".""Orders"" (
+                    ""Id"" SERIAL PRIMARY KEY,
+                    ""CustomerId"" INTEGER NOT NULL REFERENCES ""{tenantId}"".""Customers""(""Id""),
+                    ""OrderDate"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    ""TotalAmount"" DECIMAL(12, 2) DEFAULT 0
+                );
+
+                -- 5. 注文明細
+                CREATE TABLE ""{tenantId}"".""OrderItems"" (
+                    ""Id"" SERIAL PRIMARY KEY,
+                    ""OrderId"" INTEGER NOT NULL REFERENCES ""{tenantId}"".""Orders""(""Id"") ON DELETE CASCADE,
+                    ""ProductId"" INTEGER NOT NULL REFERENCES ""{tenantId}"".""Products""(""Id""),
+                    ""Quantity"" INTEGER NOT NULL,
+                    ""UnitPrice"" DECIMAL(12, 2) NOT NULL
+                );
+            ";
+
+            // トランザクションを利用して安全に一括実行する
+            await using var transaction = await appConn.BeginTransactionAsync();
+            try
+            {
+                await using var cmd = new NpgsqlCommand(sql, appConn, transaction);
+                await cmd.ExecuteNonQueryAsync();
+                
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
         }
 
         /// <summary>
