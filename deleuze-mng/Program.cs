@@ -38,7 +38,7 @@ builder.Services.AddSwaggerGen(c =>
     // 1. Bearer認証スキームの定義を追加
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "JWTまたはカスタム動的トークンを入力してください。\n例: `Bearer base64Payload:signature` またはそのまま入力",
+        Description = "シークレットキーを入力してください。\n例: `Bearer base64Payload:signature` またはそのまま入力",
         Name = "Authorization",
         In = ParameterLocation.Header,
         Type = SecuritySchemeType.ApiKey, // または SecuritySchemeType.Http
