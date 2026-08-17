@@ -1,8 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using DeleuzeMng.Services;
 using DeleuzeMng.Data;
-using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,11 +12,16 @@ builder.Logging.AddConsole();
 builder.Logging.SetMinimumLevel(LogLevel.Information);
 builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning); // 既定のシステムログは静かにする
 
-// 1. データベース接続文字列の取得
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
-    ?? throw new InvalidOperationException("Connection string not found.");
+// 1. 接続文字列の存在チェック（実際の取得は TenantManagementService / DbInitializer 側で行う）
+var authConnectionString = builder.Configuration.GetConnectionString("AuthConnection")
+    ?? throw new InvalidOperationException("接続文字列 'AuthConnection' が設定されていません。");
 
-// 2. Nomadの環境変数等から「シークレットキー」を取得
+if (string.IsNullOrEmpty(builder.Configuration.GetConnectionString("AppConnection")))
+{
+    throw new InvalidOperationException("接続文字列 'AppConnection' が設定されていません。");
+}
+
+// 2. Nomad の環境変数等から「シークレットキー」を取得
 var apiSecret = builder.Configuration["MANAGEMENT_API_SECRET"];
 
 if (string.IsNullOrEmpty(apiSecret))
@@ -24,13 +29,16 @@ if (string.IsNullOrEmpty(apiSecret))
     throw new InvalidOperationException("環境変数 'MANAGEMENT_API_SECRET' が設定されていません。");
 }
 
-// 管理用サービスの登録
-builder.Services.AddScoped<TenantManagementService>(_ => new TenantManagementService(connectionString));
+// 管理用サービスの登録（IConfiguration は DI コンテナが自動解決する）
+builder.Services.AddScoped<TenantManagementService>();
 
 var app = builder.Build();
 
-// データベースの初期化
-await DbInitializer.EnsureSeedDataAsync(connectionString);
+// データベースの初期化（Users テーブルは認証DB側にあるため AuthConnection を使用）
+await DbInitializer.EnsureSeedDataAsync(authConnectionString);
+
+// テナントIDのAPI層での事前バリデーション用（サービス層でも二重にチェックされる）
+var tenantIdPattern = new Regex(@"^[a-z][a-z0-9_]{2,62}$", RegexOptions.Compiled);
 
 // =========================================================================
 // 🔒 動的トークンチェック ＆ ログ出力ミドルウェア
@@ -40,34 +48,33 @@ app.Use(async (context, next) =>
     // マネジメントAPIのルート（/api/mng/）のみ認証を必須にする
     if (context.Request.Path.StartsWithSegments("/api/mng"))
     {
-        // 💡 ログレベルを固定したため、これが確実にNomadに出力されます
         app.Logger.LogInformation("[MNG-AUTH] 管理APIへのアクセスを検知しました: {Path} ({Method})", context.Request.Path, context.Request.Method);
 
         if (!context.Request.Headers.TryGetValue("Authorization", out var extractedToken))
         {
             app.Logger.LogWarning("[MNG-AUTH-FAIL] Authorization ヘッダーがリクエストに含まれていません。");
-            
+
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             await context.Response.WriteAsJsonAsync(new { error = "Authorization ヘッダーがありません。" });
             return;
         }
 
         string rawToken = extractedToken.ToString();
-        
+
         // セキュリティを考慮し、トークンの先頭部分のみをマスクしてログ出力
         string maskedToken = rawToken.Length > 25 ? $"{rawToken[..25]}..." : rawToken;
         app.Logger.LogInformation("[MNG-AUTH] トークンを受信しました: {Token}", maskedToken);
 
-        // 検証結果のステータスと理由を受け取る
         var (isValid, reason) = ValidateDynamicTokenWithReason(rawToken, apiSecret, TimeSpan.FromMinutes(5));
 
         if (!isValid)
         {
+            // 失敗理由はログにのみ出し、レスポンスには詳細を含めすぎない
             app.Logger.LogWarning("[MNG-AUTH-FAIL] トークン検証に失敗しました。理由: {Reason}", reason);
 
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            await context.Response.WriteAsJsonAsync(new { error = $"認証トークンが無効、または有効期限切れです。({reason})" });
-            return; 
+            await context.Response.WriteAsJsonAsync(new { error = "認証トークンが無効、または有効期限切れです。" });
+            return;
         }
 
         app.Logger.LogInformation("[MNG-AUTH-SUCCESS] トークン検証に成功しました。処理を継続します。");
@@ -75,30 +82,50 @@ app.Use(async (context, next) =>
     await next();
 });
 
-// 🛠️ 管理エンドポイント1: テナントの新規作成
+// 🛠️ 管理エンドポイント1: テナントの新規作成（スキーマのみ）
 app.MapPost("/api/mng/tenants", async (TenantCreationRequest req, TenantManagementService mngService) =>
 {
-    if (string.IsNullOrWhiteSpace(req.TenantId)) return Results.BadRequest("TenantId は必須です。");
+    if (string.IsNullOrWhiteSpace(req.TenantId))
+        return Results.BadRequest(new { error = "TenantId は必須です。" });
 
-    await mngService.CreateTenantAsync(req.TenantId.ToLower());
-    return Results.Ok(new { message = $"テナント '{req.TenantId}' のスキーマ隔離環境を動的に構築しました。" });
+    string normalizedTenantId = req.TenantId.ToLower();
+
+    if (!tenantIdPattern.IsMatch(normalizedTenantId))
+        return Results.BadRequest(new { error = "TenantId は小文字英数字とアンダースコアのみ、3〜63文字で指定してください。" });
+
+    try
+    {
+        await mngService.CreateTenantAsync(normalizedTenantId);
+        return Results.Ok(new { message = $"テナント '{normalizedTenantId}' のスキーマ隔離環境を構築しました。" });
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogError(ex, "テナント作成処理でエラーが発生しました。TenantId={TenantId}", normalizedTenantId);
+        return Results.Problem("テナント作成処理中にエラーが発生しました。", statusCode: StatusCodes.Status500InternalServerError);
+    }
 });
 
-// 🛠️ 管理エンドポイント2: ユーザーの新規登録
 // 🛠️ 管理エンドポイント2: ユーザーの新規登録（テナント自動プロビジョニング機能付き）
 app.MapPost("/api/mng/users", async (UserRegistrationRequest req, TenantManagementService mngService) =>
 {
     if (string.IsNullOrWhiteSpace(req.LoginId) || string.IsNullOrWhiteSpace(req.Password) || string.IsNullOrWhiteSpace(req.TenantId))
     {
-        return Results.BadRequest("すべての項目を入力してください。");
+        return Results.BadRequest(new { error = "すべての項目を入力してください。" });
     }
 
     string normalizedTenantId = req.TenantId.ToLower();
 
+    if (!tenantIdPattern.IsMatch(normalizedTenantId))
+        return Results.BadRequest(new { error = "TenantId は小文字英数字とアンダースコアのみ、3〜63文字で指定してください。" });
+
     try
     {
-        // ① 先にテナント（DBスキーマ・テーブル・初期データ）を作成
-        // ※ CreateTenantAsync 内に 'CREATE SCHEMA IF NOT EXISTS' があるため、既に存在していても安全に実行されます
+        // ① 先にテナント（DBスキーマ）を作成
+        // ※ CreateTenantAsync 内で存在チェック済みのため、既に存在していても安全に実行される
         await mngService.CreateTenantAsync(normalizedTenantId);
 
         // ② ユーザーを登録
@@ -106,9 +133,19 @@ app.MapPost("/api/mng/users", async (UserRegistrationRequest req, TenantManageme
 
         return Results.Ok(new { message = $"テナント '{normalizedTenantId}' の構築およびユーザー '{req.LoginId}' の登録が完了しました。" });
     }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+    catch (InvalidOperationException ex)
+    {
+        // 例: LoginId 重複など、利用者に見せてよい業務エラー
+        return Results.Conflict(new { error = ex.Message });
+    }
     catch (Exception ex)
     {
-        return Results.Problem($"処理中にエラーが発生しました: {ex.Message}");
+        app.Logger.LogError(ex, "ユーザー登録処理でエラーが発生しました。TenantId={TenantId}, LoginId={LoginId}", normalizedTenantId, req.LoginId);
+        return Results.Problem("処理中にエラーが発生しました。時間をおいて再度お試しください。", statusCode: StatusCodes.Status500InternalServerError);
     }
 });
 
@@ -134,13 +171,25 @@ static (bool IsValid, string Reason) ValidateDynamicTokenWithReason(string rawTo
 
     try
     {
-        // 1. HMAC-SHA256 による署名の検証
+        // 1. HMAC-SHA256 による署名の検証（定数時間比較でタイミング攻撃を防止）
         var secretBytes = Encoding.UTF8.GetBytes(secretKey);
         using var hmac = new HMACSHA256(secretBytes);
         var expectedSignatureBytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(payloadBase64));
-        string expectedSignatureBase64 = Convert.ToBase64String(expectedSignatureBytes);
 
-        if (signatureBase64 != expectedSignatureBase64)
+        byte[] providedSignatureBytes;
+        try
+        {
+            providedSignatureBytes = Convert.FromBase64String(signatureBase64);
+        }
+        catch (FormatException)
+        {
+            return (false, "署名のBase64形式が不正です。");
+        }
+
+        bool signaturesMatch = providedSignatureBytes.Length == expectedSignatureBytes.Length
+            && CryptographicOperations.FixedTimeEquals(providedSignatureBytes, expectedSignatureBytes);
+
+        if (!signaturesMatch)
         {
             return (false, "署名が一致しません（改ざん、またはシークレットキーの不一致）。");
         }
@@ -166,12 +215,12 @@ static (bool IsValid, string Reason) ValidateDynamicTokenWithReason(string rawTo
         // クロックのズレを考慮（未来5分〜有効期限切れをチェック）
         if (tokenTime > now.AddMinutes(5))
         {
-            return (false, $"トークンの時刻が未来すぎます (Token: {tokenTime}, Server: {now})。");
+            return (false, "トークンの時刻が未来すぎます。");
         }
-        
+
         if (now - tokenTime > validDuration)
         {
-            return (false, $"トークンの有効期限が切れています（5分以上経過）。");
+            return (false, "トークンの有効期限が切れています。");
         }
 
         return (true, "成功");
