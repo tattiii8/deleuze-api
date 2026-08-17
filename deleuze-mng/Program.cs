@@ -31,7 +31,36 @@ builder.Services.AddScoped<TenantManagementService>();
 
 // Swagger / OpenAPI サービスの登録
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "DeleuzeMng API", Version = "v1" });
+
+    // 1. Bearer認証スキームの定義を追加
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "JWTまたはカスタム動的トークンを入力してください。\n例: `Bearer base64Payload:signature` またはそのまま入力",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey, // または SecuritySchemeType.Http
+        Scheme = "Bearer"
+    });
+
+    // 2. すべてのエンドポイントでこのセキュリティ定義を有効にする要件を追加
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
 
 var app = builder.Build();
 
