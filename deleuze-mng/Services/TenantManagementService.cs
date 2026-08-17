@@ -159,7 +159,7 @@ namespace DeleuzeMng.Services
             if (string.IsNullOrWhiteSpace(tenantId) || !ValidTenantIdPattern.IsMatch(tenantId))
             {
                 throw new ArgumentException(
-                    $"不正なテナントID形式です。小文字英数字とアンダースコアのみ、3〜59文字で指定してください（プレフィックス app_ が自動付与されます）: '{tenantId}'",
+                    $"不正なテナントID形式です。小文字英数字とアンダースコアのみ、3〜59文字で指定してください: '{tenantId}'",
                     nameof(tenantId));
             }
         }
