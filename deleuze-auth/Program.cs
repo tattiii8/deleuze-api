@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using System;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,23 +18,34 @@ builder.Services.AddSingleton<IPasswordHasher, BCryptPasswordHasher>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddSingleton<TokenGenerator>(); // RSA鍵維持のためシングルトン
 
+// ★ Swagger / OpenAPI の登録
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
 var app = builder.Build();
 
-// ★ OIDCディスカボリドキュメント（案内所エンドポイントの動的修正）
+// ★ Swagger UI のミドルウェア設定 (開発・確認環境で有効化)
+if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Deleuze Auth API v1");
+        c.RoutePrefix = "swagger"; // http://<host>:<port>/swagger でアクセス可能
+    });
+}
+
+// ★ OIDCディスカバリドキュメント（案内所エンドポイントの動的修正）
 app.MapGet("/.well-known/openid-configuration", () =>
 {
-    // TokenGenerator.cs と同一の環境変数から、外側の正規URLを取得（フォールバック付き）
-    // スクリプトが叩いている「http://192.168.8.112:5002」がここに入ります。
     var externalUrl = Environment.GetEnvironmentVariable("AUTH_EXTERNAL_URL") ?? "http://deleuze-auth:8080";
-    
-    // 業務アプリ（deleuze-app）が同じNomadのネットワーク空間（localhost）から確実に鍵を取得できるURLを指定
-    var internalUrl = Environment.GetEnvironmentVariable("AUTH_INTERNAL_URL") ?? "http://127.0.0.1:5002";
+    var internalUrl = Environment.GetEnvironmentVariable("AUTH_INTERNAL_URL") ?? "http://127.0.0.1:5001";
 
     return Results.Ok(new
     {
-        issuer = externalUrl,                             // トークンの iss と完全一致させる（超重要）
-        token_endpoint = $"{externalUrl}/connect/token",   // 外側スクリプトが叩くログインURL
-        jwks_uri = $"{internalUrl}/.well-known/jwks",     // 業務アプリが内部から確実に鍵を抜くためのURL
+        issuer = externalUrl,                             
+        token_endpoint = $"{externalUrl}/connect/token",   
+        jwks_uri = $"{internalUrl}/.well-known/jwks",     
         subject_types_supported = new[] { "public" },
         id_token_signing_alg_values_supported = new[] { "RS256" }
     });
@@ -48,23 +60,20 @@ app.MapPost("/connect/token", async (HttpContext context, IUserService userServi
 {
     var form = await context.Request.ReadFormAsync();
     var loginId = form["user_id"].ToString();
-    var password = form["password"].ToString(); // クライアントからの生パスワード
+    var password = form["password"].ToString(); 
 
     if (string.IsNullOrEmpty(loginId) || string.IsNullOrEmpty(password))
     {
         return Results.Json(new { error = "invalid_request", message = "IDとパスワードは必須です。" }, statusCode: 400);
     }
 
-    // サービス層を通じて、認証DBのハッシュチェックと所属テナントの引き出しを実行
     var tenantId = await userService.AuthenticateAndGetTenantAsync(loginId, password);
 
     if (tenantId == null)
     {
-        // セキュリティのため、IDとパスワードのどちらが間違っているかは明かさない
         return Results.Json(new { error = "invalid_grant", message = "認証情報が正しくありません！" }, statusCode: 400);
     }
 
-    // 認証に成功したユーザー情報と正確な所属テナントでJWTを署名発行
     var token = tokenGenerator.GenerateJwt(loginId, tenantId);
     
     return Results.Ok(new { 
