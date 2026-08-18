@@ -38,15 +38,14 @@ if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Ena
 // ★ OIDCディスカバリドキュメント（案内所エンドポイントの動的修正）
 app.MapGet("/.well-known/openid-configuration", () =>
 {
-    var externalUrl = Environment.GetEnvironmentVariable("AUTH_EXTERNAL_URL") ?? "http://deleuze-auth:8080";
-    var internalUrl = Environment.GetEnvironmentVariable("AUTH_INTERNAL_URL") ?? "http://127.0.0.1:5001";
+    // 末尾のスラッシュを除去して統一
+    var externalUrl = (Environment.GetEnvironmentVariable("AUTH_EXTERNAL_URL") ?? "https://deleuze.lesure.net/api/auth").TrimEnd('/');
 
     return Results.Ok(new
     {
-        issuer = externalUrl,                             
-        token_endpoint = $"{externalUrl}/connect/token",   
-        jwks_uri = $"{internalUrl}/.well-known/jwks",     
-        subject_types_supported = new[] { "public" },
+        issuer = externalUrl,                                 // https://deleuze.lesure.net/api/auth
+        token_endpoint = $"{externalUrl}/connect/token",       // https://deleuze.lesure.net/api/auth/connect/token
+        jwks_uri = $"{externalUrl}/.well-known/jwks",         
         id_token_signing_alg_values_supported = new[] { "RS256" }
     });
 });
