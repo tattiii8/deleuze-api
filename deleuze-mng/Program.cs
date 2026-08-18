@@ -64,6 +64,10 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// 静的ファイルの提供を有効化（wwwroot/index.html 表示用）
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 // Swagger UI の有効化
 app.UseSwagger();
 app.UseSwaggerUI();
@@ -148,7 +152,33 @@ app.MapPost("/api/mng/tenants", async (TenantCreationRequest req, TenantManageme
 .WithName("CreateTenant")
 .WithOpenApi();
 
-// 🛠️ 管理エンドポイント2: ユーザーの新規登録
+// 🛠️ 管理エンドポイント2: テナント一覧取得
+app.MapGet("/api/mng/tenants", async (TenantManagementService mngService) =>
+{
+    var tenants = await mngService.GetTenantsAsync();
+    return Results.Ok(tenants);
+})
+.WithName("GetTenants")
+.WithOpenApi();
+
+// 🛠️ 管理エンドポイント3: テナント削除
+app.MapDelete("/api/mng/tenants/{tenantId}", async (string tenantId, TenantManagementService mngService) =>
+{
+    try
+    {
+        await mngService.DeleteTenantAsync(tenantId);
+        return Results.NoContent();
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogError(ex, "テナント削除エラー: {TenantId}", tenantId);
+        return Results.Problem("削除処理中にエラーが発生しました。");
+    }
+})
+.WithName("DeleteTenant")
+.WithOpenApi();
+
+// 🛠️ 管理エンドポイント4: ユーザーの新規登録
 app.MapPost("/api/mng/users", async (UserRegistrationRequest req, TenantManagementService mngService) =>
 {
     if (string.IsNullOrWhiteSpace(req.LoginId) || string.IsNullOrWhiteSpace(req.Password) || string.IsNullOrWhiteSpace(req.TenantId))
@@ -177,6 +207,24 @@ app.MapPost("/api/mng/users", async (UserRegistrationRequest req, TenantManageme
     }
 })
 .WithName("RegisterUser")
+.WithOpenApi();
+
+// 🛠️ 管理エンドポイント5: ユーザー一覧取得
+app.MapGet("/api/mng/users", async (TenantManagementService mngService) =>
+{
+    var users = await mngService.GetUsersAsync();
+    return Results.Ok(users);
+})
+.WithName("GetUsers")
+.WithOpenApi();
+
+// 🛠️ 管理エンドポイント6: ユーザー削除
+app.MapDelete("/api/mng/users/{id:int}", async (int id, TenantManagementService mngService) =>
+{
+    bool deleted = await mngService.DeleteUserAsync(id);
+    return deleted ? Results.NoContent() : Results.NotFound(new { error = "指定されたユーザーが見つかりません。" });
+})
+.WithName("DeleteUser")
 .WithOpenApi();
 
 app.Run();

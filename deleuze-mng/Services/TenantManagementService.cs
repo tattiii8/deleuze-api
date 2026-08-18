@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Dapper;
@@ -155,6 +157,67 @@ namespace DeleuzeMng.Services
             await authConn.ExecuteAsync(insertSql, new { loginId, passwordHash, tenantId });
         }
 
+        /// <summary>
+        /// 登録済みユーザー一覧を取得する
+        /// </summary>
+        public async Task<IEnumerable<UserInfo>> GetUsersAsync()
+        {
+            await using var authConn = new NpgsqlConnection(_authConnString);
+            const string sql = @"
+                SELECT ""Id"", ""LoginId"", ""TenantId"", ""CreatedAt"" 
+                FROM public.""Users"" 
+                ORDER BY ""Id"" DESC;";
+            
+            return await authConn.QueryAsync<UserInfo>(sql);
+        }
+
+        /// <summary>
+        /// 作成済みテナント（スキーマ）一覧を取得する
+        /// </summary>
+        public async Task<IEnumerable<TenantInfo>> GetTenantsAsync()
+        {
+            await using var appConn = new NpgsqlConnection(_appConnString);
+            const string sql = @"
+                SELECT schema_name AS ""TenantId""
+                FROM information_schema.schemata
+                WHERE schema_name LIKE 'app_%'
+                ORDER BY schema_name;";
+
+            var schemas = await appConn.QueryAsync<string>(sql);
+            return schemas.Select(s => new TenantInfo(s.Replace("app_", "")));
+        }
+
+        /// <summary>
+        /// ユーザーを削除する
+        /// </summary>
+        public async Task<bool> DeleteUserAsync(int id)
+        {
+            await using var authConn = new NpgsqlConnection(_authConnString);
+            const string sql = @"DELETE FROM public.""Users"" WHERE ""Id"" = @id;";
+            int affected = await authConn.ExecuteAsync(sql, new { id });
+            return affected > 0;
+        }
+
+        /// <summary>
+        /// テナント（スキーマ）とその所属ユーザーを削除する
+        /// </summary>
+        public async Task DeleteTenantAsync(string tenantId)
+        {
+            EnsureValidTenantId(tenantId);
+            string schemaName = $"app_{tenantId}";
+
+            // 1. アプリケーションDBからのスキーマ削除
+            await using var appConn = new NpgsqlConnection(_appConnString);
+            await appConn.OpenAsync();
+            var dropCmd = new NpgsqlCommand($"DROP SCHEMA IF EXISTS \"{schemaName}\" CASCADE;", appConn);
+            await dropCmd.ExecuteNonQueryAsync();
+
+            // 2. 認証DBからの関連ユーザー削除
+            await using var authConn = new NpgsqlConnection(_authConnString);
+            const string deleteUsersSql = @"DELETE FROM public.""Users"" WHERE ""TenantId"" = @tenantId;";
+            await authConn.ExecuteAsync(deleteUsersSql, new { tenantId });
+        }
+
         private static void EnsureValidTenantId(string tenantId)
         {
             if (string.IsNullOrWhiteSpace(tenantId) || !ValidTenantIdPattern.IsMatch(tenantId))
@@ -165,4 +228,7 @@ namespace DeleuzeMng.Services
             }
         }
     }
+
+    public record UserInfo(int Id, string LoginId, string TenantId, DateTime CreatedAt);
+    public record TenantInfo(string TenantId);
 }
