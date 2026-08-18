@@ -61,7 +61,7 @@ app.MapPost("/connect/token", async (HttpContext context, IUserService userServi
     if (tenantId == null)
     {
         // セキュリティのため、IDとパスワードのどちらが間違っているかは明かさない
-        return Results.Json(new { error = "invalid_grant", message = "認証情報が正しくありません。" }, statusCode: 400);
+        return Results.Json(new { error = "invalid_grant", message = "認証情報が正しくありません！" }, statusCode: 400);
     }
 
     // 認証に成功したユーザー情報と正確な所属テナントでJWTを署名発行
