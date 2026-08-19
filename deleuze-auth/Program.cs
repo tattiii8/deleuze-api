@@ -1,13 +1,14 @@
-using Microsoft.EntityFrameworkCore;
-using DeleuzeAuth.Data;
-using DeleuzeAuth.Services;
+using System;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.AspNetCore.HttpOverrides;
-using System;
+using Microsoft.OpenApi.Models; // ★ 追加
+using DeleuzeAuth.Data;
+using DeleuzeAuth.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,9 +20,12 @@ builder.Services.AddSingleton<IPasswordHasher, BCryptPasswordHasher>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddSingleton<TokenGenerator>(); // RSA鍵維持のためシングルトン
 
-// ★ Swagger / OpenAPI の登録
+// ★ Swagger / OpenAPI の登録（AddSwaggerGenの内部に SwaggerDoc を移動）
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "deleuze-auth API", Version = "v1" });
+});
 
 // リバースプロキシ（Nginx）からの Forwarded ヘッダー対応設定を追加
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
@@ -42,12 +46,22 @@ app.UsePathBase("/api/auth");
 // ★ Swagger UI のミドルウェア設定 (開発・確認環境で有効化)
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
 {
-    app.UseSwagger();
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "deleuze-auth API", Version = "v1" });
+    app.UseSwagger(c =>
+    {
+        // プロキシ配下の PathBase を考慮した Server 属性を自動生成
+        c.PreSerializeFilters.Add((swaggerDoc, httpReq) =>
+        {
+            swaggerDoc.Servers = new System.Collections.Generic.List<OpenApiServer>
+            {
+                new OpenApiServer { Url = $"{httpReq.Scheme}://{httpReq.Host.Value}{httpReq.PathBase.Value}" }
+            };
+        });
+    });
+
     app.UseSwaggerUI(c =>
     {
-        // UsePathBase を考慮したエンドポイント指定
-        c.SwaggerEndpoint("/api/auth/swagger/v1/swagger.json", "deleuze-auth API v1");
+        // 修正: 先頭の '/' を削除し、PathBase 内部の相対パスとして指定
+        c.SwaggerEndpoint("v1/swagger.json", "deleuze-auth API v1");
         c.RoutePrefix = "swagger"; // https://<host>/api/auth/swagger でアクセス可能
     });
 }
