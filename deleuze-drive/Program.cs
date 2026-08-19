@@ -4,7 +4,7 @@ using DeleuzeDrive.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// DbContext (PostgreSQL / SQLite / SQL Server 等)
+// DbContext (PostgreSQL) の登録
 builder.Services.AddDbContext<DriveDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
@@ -15,9 +15,9 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Health check 登録
+// EF Core 用の標準 Health Check を登録（Scoped な DbContext を安全にチェック可能）
 builder.Services.AddHealthChecks()
-    .AddCheck<DatabaseHealthCheck>("Database");
+    .AddDbContextCheck<DriveDbContext>("Database");
 
 var app = builder.Build();
 
