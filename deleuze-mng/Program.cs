@@ -9,6 +9,7 @@ using DeleuzeMng.Services.Infrastructure;
 using DeleuzeMng.Data;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -71,7 +72,21 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
+// リバースプロキシ（Nginx）からの Forwarded ヘッダー対応設定を追加
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedPrefix;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 var app = builder.Build();
+
+// リバースプロキシのヘッダー処理を有効化
+app.UseForwardedHeaders();
+
+// ★ 核心部分: Nginx から送られてくる `/api/mng` プレフィックスを自動除去・認識させる
+app.UsePathBase("/api/mng");
 
 if (!enableMngAuth)
 {
@@ -80,8 +95,17 @@ if (!enableMngAuth)
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
-app.UseSwagger();
-app.UseSwaggerUI();
+
+// ★ Swagger UI の設定（UsePathBase を考慮した配置）
+if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/api/mng/swagger/v1/swagger.json", "DeleuzeMng API v1");
+        c.RoutePrefix = "swagger"; // https://<host>/api/mng/swagger でアクセス可能
+    });
+}
 
 await DbInitializer.EnsureSeedDataAsync(authConnectionString);
 
@@ -90,20 +114,16 @@ var tenantIdPattern = new Regex(@"^[a-z][a-z0-9_]{2,62}$", RegexOptions.Compiled
 // 🔒 トークン検証ミドルウェア (/api/mng 配下のみ保護)
 app.Use(async (context, next) =>
 {
+    // Swagger UI 関連へのアクセスは認証をスキップ
     if (context.Request.Path.StartsWithSegments("/swagger"))
     {
         await next();
         return;
     }
 
-    if (context.Request.Path.StartsWithSegments("/api/mng"))
+    // PathBase("/api/mng") 適用後の内部パス（/tenants, /users等）または元のパス両方に対応
+    if (enableMngAuth)
     {
-        if (!enableMngAuth)
-        {
-            await next();
-            return;
-        }
-
         if (!context.Request.Headers.TryGetValue("Authorization", out var extractedToken))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -121,10 +141,12 @@ app.Use(async (context, next) =>
             return;
         }
     }
+
     await next();
 });
 
 // 🛠️ API エンドポイント
+// ※ app.UsePathBase("/api/mng") を適用したため、MapPost/MapGet には /api/mng を含めても含めなくても自動で吸収されます
 app.MapPost("/api/mng/tenants", async (TenantCreationRequest req, TenantManagementService mngService) =>
 {
     if (string.IsNullOrWhiteSpace(req.TenantId)) 

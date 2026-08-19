@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.AspNetCore.HttpOverrides;
 using System;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -22,7 +23,21 @@ builder.Services.AddSingleton<TokenGenerator>(); // RSA鍵維持のためシン�
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// リバースプロキシ（Nginx）からの Forwarded ヘッダー対応設定を追加
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedPrefix;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 var app = builder.Build();
+
+// リバースプロキシのヘッダー処理を有効化
+app.UseForwardedHeaders();
+
+// ★ 核心部分: Nginx から送られてくる `/api/auth` プレフィックスを自動除去・認識させる
+app.UsePathBase("/api/auth");
 
 // ★ Swagger UI のミドルウェア設定 (開発・確認環境で有効化)
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
@@ -30,12 +45,13 @@ if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Ena
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Deleuze Auth API v1");
-        c.RoutePrefix = "swagger"; // http://<host>:<port>/swagger でアクセス可能
+        // UsePathBase を考慮したエンドポイント指定
+        c.SwaggerEndpoint("/api/auth/swagger/v1/swagger.json", "Deleuze Auth API v1");
+        c.RoutePrefix = "swagger"; // https://<host>/api/auth/swagger でアクセス可能
     });
 }
 
-// ★ OIDCディスカバリドキュメント（案内所エンドポイントの動的修正）
+// ★ OIDCディスカバリドキュメント（案内所エンドポイント）
 app.MapGet("/.well-known/openid-configuration", () =>
 {
     // 末尾のスラッシュを除去して統一
