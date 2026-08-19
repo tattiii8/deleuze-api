@@ -35,7 +35,20 @@ namespace DeleuzeDrive.Controllers
             if (file == null || file.Length == 0)
                 return BadRequest("ファイルが空です。");
 
-            var storagePath = Path.Combine("/tmp/uploads", Guid.NewGuid() + "_" + file.FileName);
+            // 保存先ディレクトリが存在しない場合は作成
+            var uploadDir = "/tmp/uploads";
+            if (!Directory.Exists(uploadDir))
+            {
+                Directory.CreateDirectory(uploadDir);
+            }
+
+            var storagePath = Path.Combine(uploadDir, Guid.NewGuid() + "_" + file.FileName);
+
+            // 物理ファイルをディスクへ保存
+            await using (var stream = new FileStream(storagePath, FileMode.Create))
+            {
+                await file.CopyToAsync(stream);
+            }
 
             var metadata = new FileMetadata
             {
@@ -51,12 +64,56 @@ namespace DeleuzeDrive.Controllers
             return Ok(metadata);
         }
 
+        /// <summary>
+        /// ファイルをダウンロードする
+        /// </summary>
+        [HttpGet("files/{id:guid}/download")]
+        public async Task<IActionResult> DownloadFile(Guid id)
+        {
+            var fileMetadata = await _dbContext.Files.FindAsync(id);
+            if (fileMetadata == null)
+            {
+                return NotFound(new { error = "指定されたファイルのメタデータが見つかりません。" });
+            }
+
+            // 物理ストレージ上にファイルが存在するかチェック
+            if (!System.IO.File.Exists(fileMetadata.StoragePath))
+            {
+                return NotFound(new { error = "物理ストレージ上にファイルが存在しません。" });
+            }
+
+            var contentType = string.IsNullOrWhiteSpace(fileMetadata.ContentType)
+                ? "application/octet-stream"
+                : fileMetadata.ContentType;
+
+            // PhysicalFile を使用してファイルをストリーミングレスポンスとして返す
+            // 第3引数に fileDownloadName を渡すことで、ブラウザ側で Content-Disposition ヘッダーが自動設定されます
+            return PhysicalFile(
+                fileMetadata.StoragePath,
+                contentType,
+                fileDownloadName: fileMetadata.FileName
+            );
+        }
+
         [HttpDelete("files/{id:guid}")]
         public async Task<IActionResult> DeleteFile(Guid id)
         {
             var file = await _dbContext.Files.FindAsync(id);
             if (file == null)
                 return NotFound();
+
+            // 物理ファイルが存在する場合は削除
+            if (System.IO.File.Exists(file.StoragePath))
+            {
+                try
+                {
+                    System.IO.File.Delete(file.StoragePath);
+                }
+                catch (Exception)
+                {
+                    // ログ出力等の例外ハンドリングを適宜行う
+                }
+            }
 
             _dbContext.Files.Remove(file);
             await _dbContext.SaveChangesAsync();
