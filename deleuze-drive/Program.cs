@@ -1,12 +1,16 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using DeleuzeDrive.Data;
 using DeleuzeDrive.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// DbContext (PostgreSQL) の登録
-builder.Services.AddDbContext<DriveDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+// DbContext (PostgreSQL) の登録 + 動的モデルキャッシュキーファクトリの設定
+builder.Services.AddDbContext<DriveDbContext>((sp, options) =>
+{
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
+    options.ReplaceService<IModelCacheKeyFactory, TenantModelCacheKeyFactory>();
+});
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ITenantProvider, HeaderTenantProvider>();
@@ -15,7 +19,7 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// EF Core 用の標準 Health Check を登録（Scoped な DbContext を安全にチェック可能）
+// EF Core 用 Health Check
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<DriveDbContext>("Database");
 
