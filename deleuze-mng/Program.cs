@@ -103,7 +103,7 @@ if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Ena
     app.UseSwaggerUI(c =>
     {
         // 修正: パスから /api/mng を削除
-        c.SwaggerEndpoint("v1/swagger.json", "deleuze-mng API v1");
+        c.SwaggerEndpoint("/api/mng/swagger/v1/swagger.json", "deleuze-mng API v1");
         c.RoutePrefix = "swagger"; // https://<host>/api/mng/swagger でアクセス可能
     });
 }
