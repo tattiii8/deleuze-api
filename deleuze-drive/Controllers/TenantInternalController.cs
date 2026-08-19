@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using DeleuzeDrive.Data;
@@ -6,6 +7,7 @@ using DeleuzeDrive.Data;
 namespace DeleuzeDrive.Controllers
 {
     [ApiController]
+    [AllowAnonymous] // 👈 内部管理APIはアクセストークン不要
     [Route("internal/tenants")]
     public class TenantInternalController : ControllerBase
     {
@@ -21,10 +23,8 @@ namespace DeleuzeDrive.Controllers
         {
             string schemaName = $"app_{tenantId}";
 
-            // 1. まずスキーマを独立して作成・確定させる
             await _dbContext.Database.ExecuteSqlRawAsync($"CREATE SCHEMA IF NOT EXISTS \"{schemaName}\";");
 
-            // 2. Files テーブルを独立したコマンドとして作成
             var createFilesSql = $@"
                 CREATE TABLE IF NOT EXISTS ""{schemaName}"".""Files"" (
                     ""Id"" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -36,7 +36,6 @@ namespace DeleuzeDrive.Controllers
                 );";
             await _dbContext.Database.ExecuteSqlRawAsync(createFilesSql);
 
-            // 3. Folders テーブルを独立したコマンドとして作成
             var createFoldersSql = $@"
                 CREATE TABLE IF NOT EXISTS ""{schemaName}"".""Folders"" (
                     ""Id"" UUID PRIMARY KEY DEFAULT gen_random_uuid(),

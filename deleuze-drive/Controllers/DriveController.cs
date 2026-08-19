@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -10,7 +11,8 @@ using DeleuzeDrive.Models;
 namespace DeleuzeDrive.Controllers
 {
     [ApiController]
-    [Route("")] // 👈 ここだけ修正
+    [Authorize] // 👈 トークン認証を必須化（未認証は 401）
+    [Route("")]
     public class DriveController : ControllerBase
     {
         private readonly DriveDbContext _dbContext;
