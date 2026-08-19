@@ -1,6 +1,13 @@
+using System;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.OpenApi.Models;
 using DeleuzeDrive.Data;
 using DeleuzeDrive.Services;
 
@@ -18,7 +25,35 @@ builder.Services.AddScoped<ITenantProvider, HeaderTenantProvider>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+
+// ★ 修正点1: Swagger UI 上で X-Tenant-Id を設定できるように定義を追加
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "DeleuzeDrive API", Version = "v1" });
+
+    c.AddSecurityDefinition("TenantId", new OpenApiSecurityScheme
+    {
+        Description = "テナントIDを指定してください（例: acme_corp）",
+        Name = "X-Tenant-Id",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey
+    });
+
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "TenantId"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
 
 // リバースプロキシ（Nginx）からの Forwarded ヘッダー対応設定を追加
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
@@ -37,20 +72,44 @@ var app = builder.Build();
 // リバースプロキシのヘッダー処理を有効化
 app.UseForwardedHeaders();
 
-// ★ 核心部分: Nginx から送られてくる `/api/drive` プレフィックスを自動除去・認識させる
+// Nginx から送られてくる `/api/drive` プレフィックスを自動除去・認識させる
 app.UsePathBase("/api/drive");
 
-// ★ Swagger UI のミドルウェア設定 (開発環境または設定値で有効化)
+// Swagger UI のミドルウェア設定
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        // PathBase (/api/drive) を含めた JSON 取得先を指定
         c.SwaggerEndpoint("/api/drive/swagger/v1/swagger.json", "DeleuzeDrive API v1");
-        c.RoutePrefix = "swagger"; // https://<host>/api/drive/swagger でアクセス可能
+        c.RoutePrefix = "swagger";
     });
 }
+
+// ★ 修正点2: テナントヘッダー未指定時の直落ち防止ミドルウェア
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path.Value?.ToLower() ?? "";
+
+    // Swagger、Health Check、内部管理用（/internal）API はテナントID指定のチェックをバイパス
+    if (path.StartsWith("/swagger") || 
+        path.StartsWith("/health") || 
+        path.StartsWith("/internal"))
+    {
+        await next();
+        return;
+    }
+
+    // 通常の API リクエストで X-Tenant-Id ヘッダーが存在しない場合は 400 Bad Request
+    if (!context.Request.Headers.TryGetValue("X-Tenant-Id", out var tenantId) || string.IsNullOrWhiteSpace(tenantId))
+    {
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        await context.Response.WriteAsJsonAsync(new { error = "リクエストヘッダー 'X-Tenant-Id' が必要です。" });
+        return;
+    }
+
+    await next();
+});
 
 app.UseAuthorization();
 
