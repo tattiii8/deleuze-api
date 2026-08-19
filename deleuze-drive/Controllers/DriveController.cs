@@ -10,7 +10,7 @@ using DeleuzeDrive.Models;
 namespace DeleuzeDrive.Controllers
 {
     [ApiController]
-    [Route("[controller]")] // 👈 ここだけ修正
+    [Route("")] // 👈 ここだけ修正
     public class DriveController : ControllerBase
     {
         private readonly DriveDbContext _dbContext;
