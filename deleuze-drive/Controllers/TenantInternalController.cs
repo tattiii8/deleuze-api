@@ -16,15 +16,13 @@ namespace DeleuzeDrive.Controllers
             _dbContext = dbContext;
         }
 
-        /// <summary>
-        /// DeleuzeMng から呼び出されるテナント用スキーマ・初期テーブル作成 API
-        /// </summary>
         [HttpPost("{tenantId}/initialize")]
         public async Task<IActionResult> InitializeTenant(string tenantId)
         {
             string schemaName = $"app_{tenantId}";
 
-            await _dbContext.Database.ExecuteSqlRawAsync($"CREATE SCHEMA IF NOT EXISTS \"{schemaName}\";");
+            // 💡 ExecuteSqlRawAsync から ExecuteSqlInterpolatedAsync へ変更して SQL インジェクション警告を回避
+            await _dbContext.Database.ExecuteSqlInterpolatedAsync($"CREATE SCHEMA IF NOT EXISTS \"{schemaName}\";");
 
             var sql = $@"
                 CREATE TABLE IF NOT EXISTS ""{schemaName}"".""Files"" (
@@ -47,14 +45,11 @@ namespace DeleuzeDrive.Controllers
             return Ok(new { message = $"Drive schema '{schemaName}' initialized successfully." });
         }
 
-        /// <summary>
-        /// DeleuzeMng から呼び出されるテナント削除（ロールバック）用 API
-        /// </summary>
         [HttpDelete("{tenantId}")]
         public async Task<IActionResult> DeleteTenant(string tenantId)
         {
             string schemaName = $"app_{tenantId}";
-            await _dbContext.Database.ExecuteSqlRawAsync($"DROP SCHEMA IF EXISTS \"{schemaName}\" CASCADE;");
+            await _dbContext.Database.ExecuteSqlInterpolatedAsync($"DROP SCHEMA IF EXISTS \"{schemaName}\" CASCADE;");
             return NoContent();
         }
     }

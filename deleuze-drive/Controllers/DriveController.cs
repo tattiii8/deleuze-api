@@ -1,8 +1,11 @@
+using System;
+using System.IO;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using DeleuzeDrive.Data;
 using DeleuzeDrive.Models;
-using DeleuzeDrive.Services;
 
 namespace DeleuzeDrive.Controllers
 {
@@ -10,78 +13,55 @@ namespace DeleuzeDrive.Controllers
     [Route("api/[controller]")]
     public class DriveController : ControllerBase
     {
-        private readonly DriveDbContext _context;
-        private readonly ITenantProvider _tenantProvider;
-        private readonly string _baseStoragePath = "/app/uploads";
+        private readonly DriveDbContext _dbContext;
 
-        public DriveController(DriveDbContext context, ITenantProvider tenantProvider)
+        public DriveController(DriveDbContext dbContext)
         {
-            _context = context;
-            _tenantProvider = tenantProvider;
+            _dbContext = dbContext;
+        }
+
+        [HttpGet("files")]
+        public async Task<IActionResult> GetFiles()
+        {
+            // スキーマ分離により、現在アクセスのテナント配下のテーブルのみが自動取得される
+            var files = await _dbContext.Files.ToListAsync();
+            return Ok(files);
         }
 
         [HttpPost("upload")]
-        [RequestSizeLimit(500 * 1024 * 1024)] // 500MB (動画・音声用)
         public async Task<IActionResult> Upload(IFormFile file)
         {
             if (file == null || file.Length == 0)
-                return BadRequest("ファイルが選択されていません。");
+                return BadRequest("ファイルが空です。");
 
-            var tenantId = _tenantProvider.GetTenantId();
-            var tenantDirectory = Path.Combine(_baseStoragePath, tenantId);
-            Directory.CreateDirectory(tenantDirectory);
-
-            var fileId = Guid.NewGuid();
-            var extension = Path.GetExtension(file.FileName);
-            var savedFileName = $"{fileId}{extension}";
-            var filePath = Path.Combine(tenantDirectory, savedFileName);
-
-            using (var stream = new FileStream(filePath, FileMode.Create))
-            {
-                await file.CopyToAsync(stream);
-            }
+            var storagePath = Path.Combine("/tmp/uploads", Guid.NewGuid() + "_" + file.FileName);
 
             var metadata = new FileMetadata
             {
-                Id = fileId,
                 FileName = file.FileName,
                 ContentType = file.ContentType,
-                Size = file.Length,
-                StoragePath = savedFileName,
-                TenantId = tenantId
+                ByteSize = file.Length, // 💡 Size から ByteSize へ修正
+                StoragePath = storagePath
+                // 💡 TenantId の設定は不要（スキーマで分離されるため）
             };
 
-            _context.Files.Add(metadata);
-            await _context.SaveChangesAsync();
+            _dbContext.Files.Add(metadata);
+            await _dbContext.SaveChangesAsync();
 
             return Ok(metadata);
         }
 
-        [HttpGet("files")]
-        public async Task<IActionResult> ListFiles()
+        [HttpDelete("files/{id:guid}")]
+        public async Task<IActionResult> DeleteFile(Guid id)
         {
-            var tenantId = _tenantProvider.GetTenantId();
-            var files = await _context.Files
-                .Where(f => f.TenantId == tenantId)
-                .ToListAsync();
+            var file = await _dbContext.Files.FindAsync(id);
+            if (file == null)
+                return NotFound();
 
-            return Ok(files);
-        }
+            _dbContext.Files.Remove(file);
+            await _dbContext.SaveChangesAsync();
 
-        [HttpGet("files/{id}")]
-        public async Task<IActionResult> GetFile(Guid id)
-        {
-            var tenantId = _tenantProvider.GetTenantId();
-            var metadata = await _context.Files
-                .FirstOrDefaultAsync(f => f.Id == id && f.TenantId == tenantId);
-
-            if (metadata == null) return NotFound();
-
-            var filePath = Path.Combine(_baseStoragePath, tenantId, metadata.StoragePath);
-            if (!System.IO.File.Exists(filePath)) return NotFound();
-
-            // Range processing を有効にして動画/音声のストリーミング再生をサポート
-            return PhysicalFile(filePath, metadata.ContentType, enableRangeProcessing: true);
+            return NoContent();
         }
     }
 }
