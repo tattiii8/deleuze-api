@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Configuration;
@@ -10,6 +12,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.OpenApi.Models;
 using DeleuzeDrive.Data;
 using DeleuzeDrive.Services;
+using Swashbuckle.AspNetCore.SwaggerGen;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -26,33 +29,13 @@ builder.Services.AddScoped<ITenantProvider, HeaderTenantProvider>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// ★ 修正点1: Swagger UI 上で X-Tenant-Id を設定できるように定義を追加
+// ★ 各 API の Parameters 欄に X-Tenant-Id の入力欄を表示する設定
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "DeleuzeDrive API", Version = "v1" });
 
-    c.AddSecurityDefinition("TenantId", new OpenApiSecurityScheme
-    {
-        Description = "テナントIDを指定してください（例: acme_corp）",
-        Name = "X-Tenant-Id",
-        In = ParameterLocation.Header,
-        Type = SecuritySchemeType.ApiKey
-    });
-
-    c.AddSecurityRequirement(new OpenApiSecurityRequirement
-    {
-        {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "TenantId"
-                }
-            },
-            Array.Empty<string>()
-        }
-    });
+    // OperationFilter を追加して入力パラメータ欄に固定追加する
+    c.OperationFilter<TenantHeaderOperationFilter>();
 });
 
 // リバースプロキシ（Nginx）からの Forwarded ヘッダー対応設定を追加
@@ -86,7 +69,7 @@ if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Ena
     });
 }
 
-// ★ 修正点2: テナントヘッダー未指定時の直落ち防止ミドルウェア
+// ★ テナントヘッダー未指定時の直落ち防止ミドルウェア
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path.Value?.ToLower() ?? "";
@@ -119,3 +102,41 @@ app.MapControllers();
 app.MapHealthChecks("/health");
 
 app.Run();
+
+// ★ 各 API エンドポイントの Parameters 欄へ X-Tenant-Id を追加するフィルタークラス
+public class TenantHeaderOperationFilter : IOperationFilter
+{
+    public void Apply(OpenApiOperation operation, OperationFilterContext context)
+    {
+        // 内部 API (/internal) のコントローラーにはパラメータを追加しない
+        if (context.ApiDescription.ActionDescriptor is ControllerActionDescriptor descriptor)
+        {
+            if (descriptor.ControllerName.Equals("TenantInternal", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+
+        // ヘルスチェック等のパスもスキップ
+        var relativePath = context.ApiDescription.RelativePath?.ToLower() ?? "";
+        if (relativePath.StartsWith("health"))
+        {
+            return;
+        }
+
+        operation.Parameters ??= new List<OpenApiParameter>();
+
+        // GUI の Parameters 欄に入力フォームを追加
+        operation.Parameters.Add(new OpenApiParameter
+        {
+            Name = "X-Tenant-Id",
+            In = ParameterLocation.Header,
+            Required = true, // 必須マーク (*)
+            Description = "対象のテナントID (例: acme_corp)",
+            Schema = new OpenApiSchema
+            {
+                Type = "string"
+            }
+        });
+    }
+}
