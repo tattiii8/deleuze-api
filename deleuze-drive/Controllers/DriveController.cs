@@ -10,7 +10,7 @@ using DeleuzeDrive.Models;
 namespace DeleuzeDrive.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("[controller]")] // 👈 ここだけ修正
     public class DriveController : ControllerBase
     {
         private readonly DriveDbContext _dbContext;
@@ -23,7 +23,6 @@ namespace DeleuzeDrive.Controllers
         [HttpGet("files")]
         public async Task<IActionResult> GetFiles()
         {
-            // スキーマ分離により、現在アクセスのテナント配下のテーブルのみが自動取得される
             var files = await _dbContext.Files.ToListAsync();
             return Ok(files);
         }
@@ -40,9 +39,8 @@ namespace DeleuzeDrive.Controllers
             {
                 FileName = file.FileName,
                 ContentType = file.ContentType,
-                ByteSize = file.Length, // 💡 Size から ByteSize へ修正
+                ByteSize = file.Length,
                 StoragePath = storagePath
-                // 💡 TenantId の設定は不要（スキーマで分離されるため）
             };
 
             _dbContext.Files.Add(metadata);
