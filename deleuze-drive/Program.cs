@@ -1,5 +1,4 @@
 using System;
-using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -27,22 +26,22 @@ builder.Services.AddHttpContextAccessor();
 // ★ ITenantProvider を JwtTenantProvider に登録
 builder.Services.AddScoped<ITenantProvider, JwtTenantProvider>();
 
-// ★ JWT 認証ミドルウェアの登録
-var jwtSecret = builder.Configuration["JWT_SECRET"] 
-    ?? builder.Configuration["Jwt:Secret"] 
-    ?? throw new InvalidOperationException("環境変数または設定値 'JWT_SECRET' が未設定です。");
+// ★ JWT 認証ミドルウェアの登録 (deleuze-auth の RS256/JWKS に対応)
+var authAuthority = builder.Configuration["AUTH_INTERNAL_URL"] 
+    ?? "http://deleuze-auth:8080/api/auth";
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
+        // deleuze-auth の /.well-known/openid-configuration 経由で公開鍵(JWKS)を自動取得
+        options.Authority = authAuthority;
         options.RequireHttpsMetadata = false;
-        options.SaveToken = true;
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
-            ValidateIssuer = false,
+            ValidateIssuer = false,   // 内部コンテナURLと外部URLのドメイン相違エラーを防止
             ValidateAudience = false,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
             ClockSkew = TimeSpan.Zero
         };
     });
