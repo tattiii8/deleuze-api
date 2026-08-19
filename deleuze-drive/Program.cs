@@ -98,7 +98,7 @@ if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Ena
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        c.SwaggerEndpoint("/api/drive/swagger/v1/swagger.json", "DeleuzeDrive API v1");
+        c.SwaggerEndpoint("/api/drive/swagger/v1/swagger.json", "deleuze-drive API v1");
         c.RoutePrefix = "swagger";
     });
 }

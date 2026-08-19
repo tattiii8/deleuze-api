@@ -46,7 +46,7 @@ if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Ena
     app.UseSwaggerUI(c =>
     {
         // UsePathBase を考慮したエンドポイント指定
-        c.SwaggerEndpoint("/api/auth/swagger/v1/swagger.json", "Deleuze Auth API v1");
+        c.SwaggerEndpoint("/api/auth/swagger/v1/swagger.json", "deleuze-auth API v1");
         c.RoutePrefix = "swagger"; // https://<host>/api/auth/swagger でアクセス可能
     });
 }
