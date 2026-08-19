@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("deleuze-auth")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+8df2f954a2d3f7d7d3db9c2e4137582b09117677")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6f23d8094f6a0ec5a19710c14aee4fc33f80aa21")]
 [assembly: System.Reflection.AssemblyProductAttribute("deleuze-auth")]
 [assembly: System.Reflection.AssemblyTitleAttribute("deleuze-auth")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("deleuze-drive")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+8a13fe65b6ab36d8c964557f88270c9a3409d69f")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6f23d8094f6a0ec5a19710c14aee4fc33f80aa21")]
 [assembly: System.Reflection.AssemblyProductAttribute("deleuze-drive")]
 [assembly: System.Reflection.AssemblyTitleAttribute("deleuze-drive")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
