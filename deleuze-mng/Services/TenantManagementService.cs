@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Dapper;
 using Microsoft.Extensions.Configuration;
 using Npgsql;
+using DeleuzeMng.Services.Infrastructure;
 
 namespace DeleuzeMng.Services
 {
@@ -13,33 +14,83 @@ namespace DeleuzeMng.Services
     {
         private readonly string _appConnString;
         private readonly string _authConnString;
+        private readonly Dictionary<string, IServiceProvisioningClient> _serviceClients;
 
-        // PostgreSQL の識別子制限(63バイト)を踏まえ、
-        // スキーマ名を 「app_ + 小文字英字始まり + 英数字/アンダースコア」とし、
-        // 全体で3〜63文字に収まるように制限する。
-        private static readonly Regex ValidTenantIdPattern =
-            new(@"^[a-z][a-z0-9_]{2,58}$", RegexOptions.Compiled);
+        private static readonly Regex ValidTenantIdPattern = new(@"^[a-z][a-z0-9_]{2,58}$", RegexOptions.Compiled);
 
-        public TenantManagementService(IConfiguration configuration)
+        public TenantManagementService(
+            IConfiguration configuration,
+            IEnumerable<IServiceProvisioningClient> serviceClients)
         {
             _appConnString = configuration.GetConnectionString("AppConnection")
                 ?? throw new InvalidOperationException("接続文字列 'AppConnection' が設定されていません。");
-
             _authConnString = configuration.GetConnectionString("AuthConnection")
                 ?? throw new InvalidOperationException("接続文字列 'AuthConnection' が設定されていません。");
+
+            _serviceClients = serviceClients.ToDictionary(c => c.ServiceKey.ToLower(), c => c);
+        }
+
+        public bool IsSupportedService(string serviceKey)
+        {
+            return !string.IsNullOrWhiteSpace(serviceKey) && _serviceClients.ContainsKey(serviceKey.ToLower());
         }
 
         /// <summary>
-        /// テナント用のスキーマ (app_{tenantId}) をアプリケーションDB側に作成する。
-        /// 既に存在する場合は InvalidOperationException をスローする。
+        /// テナントを作成し、指定されたサービス群の初期化 API を呼び出す。途中で失敗した場合は全補償削除する。
         /// </summary>
-        public async Task CreateTenantAsync(string tenantId)
+        public async Task CreateTenantAsync(string tenantId, IEnumerable<string>? servicesToEnable = null)
+        {
+            EnsureValidTenantId(tenantId);
+            string schemaName = $"app_{tenantId}";
+
+            var enabledServices = servicesToEnable?.Select(s => s.ToLower()).Distinct().ToList() ?? new List<string>();
+
+            // 1. 未対応サービスの事前検証
+            foreach (var serviceKey in enabledServices)
+            {
+                if (!IsSupportedService(serviceKey))
+                    throw new ArgumentException($"未対応のサービスが含まれています: '{serviceKey}'", nameof(servicesToEnable));
+            }
+
+            var completedServices = new List<string>();
+            bool coreCreated = false;
+
+            try
+            {
+                // 2. Core (App) DB の基本スキーマ作成
+                await CreateCoreAppSchemaAsync(tenantId, schemaName);
+                coreCreated = true;
+
+                // 3. 各サービスの内部 API を呼び出してプロビジョニング実行
+                foreach (var serviceKey in enabledServices)
+                {
+                    await _serviceClients[serviceKey].InitializeTenantAsync(tenantId);
+                    completedServices.Add(serviceKey);
+                }
+            }
+            catch
+            {
+                // 補償処理：途中で失敗した場合は作成済みのものをロールバックする
+                await RollbackTenantCreationAsync(tenantId, coreCreated, completedServices);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 既存テナントに対して単体でサービスを後から追加有効化する
+        /// </summary>
+        public async Task EnableServiceForTenantAsync(string tenantId, string serviceKey)
         {
             EnsureValidTenantId(tenantId);
 
-            // スキーマ名を app_{tenantId} に組み立てる
-            string schemaName = $"app_{tenantId}";
+            if (string.IsNullOrWhiteSpace(serviceKey) || !IsSupportedService(serviceKey))
+                throw new ArgumentException($"未対応のサービスキーです: '{serviceKey}'", nameof(serviceKey));
 
+            await _serviceClients[serviceKey.ToLower()].InitializeTenantAsync(tenantId);
+        }
+
+        private async Task CreateCoreAppSchemaAsync(string tenantId, string schemaName)
+        {
             await using var appConn = new NpgsqlConnection(_appConnString);
             await appConn.OpenAsync();
 
@@ -47,87 +98,53 @@ namespace DeleuzeMng.Services
                 "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = @schemaName);",
                 new { schemaName });
 
-            // 💡 既に存在する場合はエラーとする
             if (alreadyExists)
-            {
                 throw new InvalidOperationException($"テナント '{tenantId}' はすでに存在します。");
-            }
 
-            // 動的SQL組み立て（schemaName はバリデーション済みのため安全）
-            var createSchemaCmd = new NpgsqlCommand($"CREATE SCHEMA IF NOT EXISTS \"{schemaName}\";", appConn);
-            await createSchemaCmd.ExecuteNonQueryAsync();
-
-            await InitializeTenantTablesAsync(appConn, schemaName);
-        }
-
-        /// <summary>
-        /// 新規テナントのスキーマに初期テーブル群を作成する。
-        /// </summary>
-        private static async Task InitializeTenantTablesAsync(NpgsqlConnection appConn, string schemaName)
-        {
-            // 各テーブル作成SQLをセミコロンで区切って定義する。
-            var sql = $@"
-                -- 1. カテゴリマスタ
-                CREATE TABLE ""{schemaName}"".""Categories"" (
-                    ""Id"" SERIAL PRIMARY KEY,
-                    ""Name"" VARCHAR(100) NOT NULL,
-                    ""CreatedAt"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                );
-
-                -- 2. 商品マスタ
-                CREATE TABLE ""{schemaName}"".""Products"" (
-                    ""Id"" SERIAL PRIMARY KEY,
-                    ""CategoryId"" INTEGER REFERENCES ""{schemaName}"".""Categories""(""Id""),
-                    ""Name"" VARCHAR(255) NOT NULL,
-                    ""Price"" DECIMAL(12, 2) DEFAULT 0,
-                    ""CreatedAt"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                );
-
-                -- 3. 顧客マスタ
-                CREATE TABLE ""{schemaName}"".""Customers"" (
-                    ""Id"" SERIAL PRIMARY KEY,
-                    ""Name"" VARCHAR(100) NOT NULL,
-                    ""Email"" VARCHAR(255),
-                    ""CreatedAt"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                );
-
-                -- 4. 注文トランザクション
-                CREATE TABLE ""{schemaName}"".""Orders"" (
-                    ""Id"" SERIAL PRIMARY KEY,
-                    ""CustomerId"" INTEGER NOT NULL REFERENCES ""{schemaName}"".""Customers""(""Id""),
-                    ""OrderDate"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                    ""TotalAmount"" DECIMAL(12, 2) DEFAULT 0
-                );
-
-                -- 5. 注文明細
-                CREATE TABLE ""{schemaName}"".""OrderItems"" (
-                    ""Id"" SERIAL PRIMARY KEY,
-                    ""OrderId"" INTEGER NOT NULL REFERENCES ""{schemaName}"".""Orders""(""Id"") ON DELETE CASCADE,
-                    ""ProductId"" INTEGER NOT NULL REFERENCES ""{schemaName}"".""Products""(""Id""),
-                    ""Quantity"" INTEGER NOT NULL,
-                    ""UnitPrice"" DECIMAL(12, 2) NOT NULL
-                );
-            ";
-
-            // トランザクションを利用して安全に一括実行する
-            await using var transaction = await appConn.BeginTransactionAsync();
+            await using var tx = await appConn.BeginTransactionAsync();
             try
             {
-                await using var cmd = new NpgsqlCommand(sql, appConn, transaction);
-                await cmd.ExecuteNonQueryAsync();
-                
-                await transaction.CommitAsync();
+                await using (var createSchemaCmd = new NpgsqlCommand($"CREATE SCHEMA IF NOT EXISTS \"{schemaName}\";", appConn, tx))
+                {
+                    await createSchemaCmd.ExecuteNonQueryAsync();
+                }
+
+                await tx.CommitAsync();
             }
             catch
             {
-                await transaction.RollbackAsync();
+                await tx.RollbackAsync();
                 throw;
             }
         }
 
-        /// <summary>
-        /// 認証DBにユーザーを登録する。
-        /// </summary>
+        private async Task RollbackTenantCreationAsync(string tenantId, bool coreCreated, List<string> completedServices)
+        {
+            string schemaName = $"app_{tenantId}";
+
+            // 1. 各サービス側 API にロールバック要求
+            foreach (var serviceKey in completedServices)
+            {
+                if (_serviceClients.TryGetValue(serviceKey, out var client))
+                {
+                    await client.RollbackTenantAsync(tenantId);
+                }
+            }
+
+            // 2. Core (App) スキーマの補償削除
+            if (coreCreated)
+            {
+                try
+                {
+                    await using var appConn = new NpgsqlConnection(_appConnString);
+                    await appConn.OpenAsync();
+                    await using var cmd = new NpgsqlCommand($"DROP SCHEMA IF EXISTS \"{schemaName}\" CASCADE;", appConn);
+                    await cmd.ExecuteNonQueryAsync();
+                }
+                catch { }
+            }
+        }
+
         public async Task RegisterUserAsync(string loginId, string password, string tenantId)
         {
             EnsureValidTenantId(tenantId);
@@ -157,9 +174,6 @@ namespace DeleuzeMng.Services
             await authConn.ExecuteAsync(insertSql, new { loginId, passwordHash, tenantId });
         }
 
-        /// <summary>
-        /// 登録済みユーザー一覧を取得する
-        /// </summary>
         public async Task<IEnumerable<UserInfo>> GetUsersAsync()
         {
             await using var authConn = new NpgsqlConnection(_authConnString);
@@ -171,9 +185,6 @@ namespace DeleuzeMng.Services
             return await authConn.QueryAsync<UserInfo>(sql);
         }
 
-        /// <summary>
-        /// 作成済みテナント（スキーマ）一覧を取得する
-        /// </summary>
         public async Task<IEnumerable<TenantInfo>> GetTenantsAsync()
         {
             await using var appConn = new NpgsqlConnection(_appConnString);
@@ -187,9 +198,6 @@ namespace DeleuzeMng.Services
             return schemas.Select(s => new TenantInfo(s.Replace("app_", "")));
         }
 
-        /// <summary>
-        /// ユーザーを削除する
-        /// </summary>
         public async Task<bool> DeleteUserAsync(int id)
         {
             await using var authConn = new NpgsqlConnection(_authConnString);
@@ -198,21 +206,26 @@ namespace DeleuzeMng.Services
             return affected > 0;
         }
 
-        /// <summary>
-        /// テナント（スキーマ）とその所属ユーザーを削除する
-        /// </summary>
         public async Task DeleteTenantAsync(string tenantId)
         {
             EnsureValidTenantId(tenantId);
             string schemaName = $"app_{tenantId}";
 
-            // 1. アプリケーションDBからのスキーマ削除
+            // 1. App DB から Core スキーマ削除
             await using var appConn = new NpgsqlConnection(_appConnString);
             await appConn.OpenAsync();
-            var dropCmd = new NpgsqlCommand($"DROP SCHEMA IF EXISTS \"{schemaName}\" CASCADE;", appConn);
-            await dropCmd.ExecuteNonQueryAsync();
+            await using (var dropCmd = new NpgsqlCommand($"DROP SCHEMA IF EXISTS \"{schemaName}\" CASCADE;", appConn))
+            {
+                await dropCmd.ExecuteNonQueryAsync();
+            }
 
-            // 2. 認証DBからの関連ユーザー削除
+            // 2. 登録されている全マイクロサービス API に削除依頼
+            foreach (var client in _serviceClients.Values)
+            {
+                await client.RollbackTenantAsync(tenantId);
+            }
+
+            // 3. 認証 DB からの関連ユーザー削除
             await using var authConn = new NpgsqlConnection(_authConnString);
             const string deleteUsersSql = @"DELETE FROM public.""Users"" WHERE ""TenantId"" = @tenantId;";
             await authConn.ExecuteAsync(deleteUsersSql, new { tenantId });
