@@ -23,22 +23,21 @@ builder.Services.AddDbContext<DriveDbContext>((sp, options) =>
 
 builder.Services.AddHttpContextAccessor();
 
-// ★ ITenantProvider を JwtTenantProvider に登録
+// ITenantProvider を JwtTenantProvider に登録
 builder.Services.AddScoped<ITenantProvider, JwtTenantProvider>();
 
-// ★ JWT 認証ミドルウェアの登録 (deleuze-auth の RS256/JWKS に対応)
+// ★ deleuze-auth (RS256 / JWKS) に連動する認証設定（JWT_SECRET の参照を削除）
 var authAuthority = builder.Configuration["AUTH_INTERNAL_URL"] 
     ?? "http://deleuze-auth:8080/api/auth";
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        // deleuze-auth の /.well-known/openid-configuration 経由で公開鍵(JWKS)を自動取得
         options.Authority = authAuthority;
         options.RequireHttpsMetadata = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            ValidateIssuer = false,   // 内部コンテナURLと外部URLのドメイン相違エラーを防止
+            ValidateIssuer = false,
             ValidateAudience = false,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
@@ -49,7 +48,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// ★ Swagger UI で「Authorize」ボタンから Bearer トークンを設定可能にする
+// Swagger UI で「Authorize」ボタンから Bearer トークンを設定可能にする
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "DeleuzeDrive API", Version = "v1" });
@@ -104,7 +103,6 @@ if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Ena
     });
 }
 
-// ⚠️ UseAuthentication -> UseAuthorization の順序で実行
 app.UseAuthentication();
 app.UseAuthorization();
 
