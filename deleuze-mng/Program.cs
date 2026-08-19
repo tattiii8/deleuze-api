@@ -96,13 +96,14 @@ if (!enableMngAuth)
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-// ★ Swagger UI の設定（UsePathBase を考慮した配置）
+// ★ Swagger UI の設定（UsePathBase を考慮し、パスを相対指定に変更）
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        c.SwaggerEndpoint("/api/mng/swagger/v1/swagger.json", "DeleuzeMng API v1");
+        // 修正: パスから /api/mng を削除
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "DeleuzeMng API v1");
         c.RoutePrefix = "swagger"; // https://<host>/api/mng/swagger でアクセス可能
     });
 }
@@ -111,7 +112,7 @@ await DbInitializer.EnsureSeedDataAsync(authConnectionString);
 
 var tenantIdPattern = new Regex(@"^[a-z][a-z0-9_]{2,62}$", RegexOptions.Compiled);
 
-// 🔒 トークン検証ミドルウェア (/api/mng 配下のみ保護)
+// 🔒 トークン検証ミドルウェア
 app.Use(async (context, next) =>
 {
     // Swagger UI 関連へのアクセスは認証をスキップ
@@ -121,7 +122,6 @@ app.Use(async (context, next) =>
         return;
     }
 
-    // PathBase("/api/mng") 適用後の内部パス（/tenants, /users等）または元のパス両方に対応
     if (enableMngAuth)
     {
         if (!context.Request.Headers.TryGetValue("Authorization", out var extractedToken))
@@ -146,8 +146,9 @@ app.Use(async (context, next) =>
 });
 
 // 🛠️ API エンドポイント
-// ※ app.UsePathBase("/api/mng") を適用したため、MapPost/MapGet には /api/mng を含めても含めなくても自動で吸収されます
-app.MapPost("/api/mng/tenants", async (TenantCreationRequest req, TenantManagementService mngService) =>
+// 修正: パスから /api/mng を削除（UsePathBase があるため）
+
+app.MapPost("/tenants", async (TenantCreationRequest req, TenantManagementService mngService) =>
 {
     if (string.IsNullOrWhiteSpace(req.TenantId)) 
         return Results.BadRequest(new { error = "TenantId は必須です。" });
@@ -178,7 +179,7 @@ app.MapPost("/api/mng/tenants", async (TenantCreationRequest req, TenantManageme
 .WithName("CreateTenant")
 .WithOpenApi();
 
-app.MapPost("/api/mng/tenants/{tenantId}/services", async (string tenantId, EnableServiceRequest req, TenantManagementService mngService) =>
+app.MapPost("/tenants/{tenantId}/services", async (string tenantId, EnableServiceRequest req, TenantManagementService mngService) =>
 {
     if (string.IsNullOrWhiteSpace(req.ServiceKey))
         return Results.BadRequest(new { error = "ServiceKey は必須です。" });
@@ -202,7 +203,7 @@ app.MapPost("/api/mng/tenants/{tenantId}/services", async (string tenantId, Enab
 .WithName("EnableServiceForTenant")
 .WithOpenApi();
 
-app.MapGet("/api/mng/tenants", async (TenantManagementService mngService) =>
+app.MapGet("/tenants", async (TenantManagementService mngService) =>
 {
     var tenants = await mngService.GetTenantsAsync();
     return Results.Ok(tenants);
@@ -210,7 +211,7 @@ app.MapGet("/api/mng/tenants", async (TenantManagementService mngService) =>
 .WithName("GetTenants")
 .WithOpenApi();
 
-app.MapDelete("/api/mng/tenants/{tenantId}", async (string tenantId, TenantManagementService mngService) =>
+app.MapDelete("/tenants/{tenantId}", async (string tenantId, TenantManagementService mngService) =>
 {
     try
     {
@@ -226,7 +227,7 @@ app.MapDelete("/api/mng/tenants/{tenantId}", async (string tenantId, TenantManag
 .WithName("DeleteTenant")
 .WithOpenApi();
 
-app.MapPost("/api/mng/users", async (UserRegistrationRequest req, TenantManagementService mngService) =>
+app.MapPost("/users", async (UserRegistrationRequest req, TenantManagementService mngService) =>
 {
     if (string.IsNullOrWhiteSpace(req.LoginId) || string.IsNullOrWhiteSpace(req.Password) || string.IsNullOrWhiteSpace(req.TenantId))
         return Results.BadRequest(new { error = "すべての項目を入力してください。" });
@@ -252,7 +253,7 @@ app.MapPost("/api/mng/users", async (UserRegistrationRequest req, TenantManageme
 .WithName("RegisterUser")
 .WithOpenApi();
 
-app.MapGet("/api/mng/users", async (TenantManagementService mngService) =>
+app.MapGet("/users", async (TenantManagementService mngService) =>
 {
     var users = await mngService.GetUsersAsync();
     return Results.Ok(users);
@@ -260,7 +261,7 @@ app.MapGet("/api/mng/users", async (TenantManagementService mngService) =>
 .WithName("GetUsers")
 .WithOpenApi();
 
-app.MapDelete("/api/mng/users/{id:int}", async (int id, TenantManagementService mngService) =>
+app.MapDelete("/users/{id:int}", async (int id, TenantManagementService mngService) =>
 {
     bool deleted = await mngService.DeleteUserAsync(id);
     return deleted ? Results.NoContent() : Results.NotFound(new { error = "指定されたユーザーが見つかりません。" });
