@@ -22,9 +22,15 @@ if (string.IsNullOrEmpty(builder.Configuration.GetConnectionString("AppConnectio
     throw new InvalidOperationException("接続文字列 'AppConnection' が設定されていません。");
 }
 
-// 2. Nomad の環境変数等から「シークレットキー」を取得
-var apiSecret = builder.Configuration["MANAGEMENT_API_SECRET"]
-    ?? throw new InvalidOperationException("環境変数 'MANAGEMENT_API_SECRET' が設定されていません。");
+// 2. 認証機能の有効フラグを取得（デフォルトは安全のため true）
+var enableMngAuth = builder.Configuration.GetValue<bool>("ENABLE_MNG_AUTH", true);
+
+// 3. Nomad の環境変数等から「シークレットキー」を取得（認証有効時のみ必須化）
+var apiSecret = builder.Configuration["MANAGEMENT_API_SECRET"];
+if (enableMngAuth && string.IsNullOrEmpty(apiSecret))
+{
+    throw new InvalidOperationException("認証が有効ですが、環境変数 'MANAGEMENT_API_SECRET' が設定されていません。");
+}
 
 // 管理用サービスの登録
 builder.Services.AddScoped<TenantManagementService>();
@@ -64,6 +70,12 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// 起動ログの出力
+if (!enableMngAuth)
+{
+    app.Logger.LogWarning("[MNG-AUTH] 🔥 管理APIのワンタイムトークン認証 (ENABLE_MNG_AUTH) は無効化されています。");
+}
+
 // 静的ファイルの提供を有効化（wwwroot/index.html 表示用）
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -90,9 +102,16 @@ app.Use(async (context, next) =>
         return;
     }
 
-    // マネジメントAPIのルート（/api/mng/）のみ認証を必須にする
+    // マネジメントAPIのルート（/api/mng/）のみ認証チェック
     if (context.Request.Path.StartsWithSegments("/api/mng"))
     {
+        // 💡 認証フラグが OFF の場合はそのまま処理を通す
+        if (!enableMngAuth)
+        {
+            await next();
+            return;
+        }
+
         app.Logger.LogInformation("[MNG-AUTH] 管理APIへのアクセスを検知しました: {Path} ({Method})", context.Request.Path, context.Request.Method);
 
         if (!context.Request.Headers.TryGetValue("Authorization", out var extractedToken))
@@ -107,7 +126,7 @@ app.Use(async (context, next) =>
         string maskedToken = rawToken.Length > 25 ? $"{rawToken[..25]}..." : rawToken;
         app.Logger.LogInformation("[MNG-AUTH] トークンを受信しました: {Token}", maskedToken);
 
-        var (isValid, reason) = ValidateDynamicTokenWithReason(rawToken, apiSecret, TimeSpan.FromMinutes(5));
+        var (isValid, reason) = ValidateDynamicTokenWithReason(rawToken, apiSecret!, TimeSpan.FromMinutes(5));
 
         if (!isValid)
         {
