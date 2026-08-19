@@ -48,12 +48,14 @@ if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Ena
 {
     app.UseSwagger(c =>
     {
-        // プロキシ配下の PathBase を考慮した Server 属性を自動生成
         c.PreSerializeFilters.Add((swaggerDoc, httpReq) =>
         {
+            // X-Forwarded-Proto ヘッダーがあればそれを優先し、無ければ Request.Scheme を利用
+            var scheme = httpReq.Headers["X-Forwarded-Proto"].FirstOrDefault() ?? httpReq.Scheme;
+            
             swaggerDoc.Servers = new System.Collections.Generic.List<OpenApiServer>
             {
-                new OpenApiServer { Url = $"{httpReq.Scheme}://{httpReq.Host.Value}{httpReq.PathBase.Value}" }
+                new OpenApiServer { Url = $"{scheme}://{httpReq.Host.Value}{httpReq.PathBase.Value}" }
             };
         });
     });
