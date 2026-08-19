@@ -21,10 +21,11 @@ namespace DeleuzeDrive.Controllers
         {
             string schemaName = $"app_{tenantId}";
 
-            // 💡 ExecuteSqlRawAsync から ExecuteSqlInterpolatedAsync へ変更して SQL インジェクション警告を回避
-            await _dbContext.Database.ExecuteSqlInterpolatedAsync($"CREATE SCHEMA IF NOT EXISTS \"{schemaName}\";");
+            // 1. まずスキーマを独立して作成・確定させる
+            await _dbContext.Database.ExecuteSqlRawAsync($"CREATE SCHEMA IF NOT EXISTS \"{schemaName}\";");
 
-            var sql = $@"
+            // 2. Files テーブルを独立したコマンドとして作成
+            var createFilesSql = $@"
                 CREATE TABLE IF NOT EXISTS ""{schemaName}"".""Files"" (
                     ""Id"" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     ""FileName"" VARCHAR(255) NOT NULL,
@@ -32,16 +33,19 @@ namespace DeleuzeDrive.Controllers
                     ""ByteSize"" BIGINT NOT NULL DEFAULT 0,
                     ""StoragePath"" TEXT NOT NULL,
                     ""CreatedAt"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                );
+                );";
+            await _dbContext.Database.ExecuteSqlRawAsync(createFilesSql);
+
+            // 3. Folders テーブルを独立したコマンドとして作成
+            var createFoldersSql = $@"
                 CREATE TABLE IF NOT EXISTS ""{schemaName}"".""Folders"" (
                     ""Id"" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     ""Name"" VARCHAR(255) NOT NULL,
                     ""ParentId"" UUID REFERENCES ""{schemaName}"".""Folders""(""Id"") ON DELETE CASCADE,
                     ""CreatedAt"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                );
-            ";
+                );";
+            await _dbContext.Database.ExecuteSqlRawAsync(createFoldersSql);
 
-            await _dbContext.Database.ExecuteSqlRawAsync(sql);
             return Ok(new { message = $"Drive schema '{schemaName}' initialized successfully." });
         }
 
@@ -49,7 +53,7 @@ namespace DeleuzeDrive.Controllers
         public async Task<IActionResult> DeleteTenant(string tenantId)
         {
             string schemaName = $"app_{tenantId}";
-            await _dbContext.Database.ExecuteSqlInterpolatedAsync($"DROP SCHEMA IF EXISTS \"{schemaName}\" CASCADE;");
+            await _dbContext.Database.ExecuteSqlRawAsync($"DROP SCHEMA IF EXISTS \"{schemaName}\" CASCADE;");
             return NoContent();
         }
     }
