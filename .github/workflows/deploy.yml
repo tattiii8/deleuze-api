@@ -7,6 +7,7 @@ on:
       - 'deleuze-auth/**'
       - 'deleuze-app/**'
       - 'deleuze-mng/**'
+      - 'deleuze-drive/**'
       - '.github/workflows/**'
 
 env:
@@ -17,18 +18,20 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      auth: ${{ steps.filter.outputs.auth }}
-      app:  ${{ steps.filter.outputs.app }}
-      mng:  ${{ steps.filter.outputs.mng }}
+      auth:  ${{ steps.filter.outputs.auth }}
+      app:   ${{ steps.filter.outputs.app }}
+      mng:   ${{ steps.filter.outputs.mng }}
+      drive: ${{ steps.filter.outputs.drive }}
     steps:
     - uses: actions/checkout@v4
     - uses: dorny/paths-filter@v3
       id: filter
       with:
         filters: |
-          auth: ['deleuze-auth/**']
-          app:  ['deleuze-app/**']
-          mng:  ['deleuze-mng/**']
+          auth:  ['deleuze-auth/**']
+          app:   ['deleuze-app/**']
+          mng:   ['deleuze-mng/**']
+          drive: ['deleuze-drive/**']
 
   build-and-push:
     needs: changes
@@ -86,3 +89,14 @@ jobs:
         tags: |
           ${{ env.ECR_REGISTRY }}/deleuze-mng:latest
           ${{ env.ECR_REGISTRY }}/deleuze-mng:${{ github.sha }}
+
+    - name: Build and Push deleuze-drive
+      if: ${{ needs.changes.outputs.drive == 'true' }}
+      uses: docker/build-push-action@v5
+      with:
+        context: ./deleuze-drive
+        platforms: linux/amd64
+        push: true
+        tags: |
+          ${{ env.ECR_REGISTRY }}/deleuze-drive:latest
+          ${{ env.ECR_REGISTRY }}/deleuze-drive:${{ github.sha }}
