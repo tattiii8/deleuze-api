@@ -43,6 +43,7 @@ app.UsePathBase("/api/auth");
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
 {
     app.UseSwagger();
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "deleuze-auth API", Version = "v1" });
     app.UseSwaggerUI(c =>
     {
         // UsePathBase を考慮したエンドポイント指定
