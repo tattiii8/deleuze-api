@@ -51,7 +51,7 @@ builder.Services.AddEndpointsApiExplorer();
 // Swagger UI で「Authorize」ボタンから Bearer トークンを設定可能にする
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "DeleuzeDrive API", Version = "v1" });
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "deleuze-drive API", Version = "v1" });
 
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
