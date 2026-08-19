@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("deleuze-mng")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+8df2f954a2d3f7d7d3db9c2e4137582b09117677")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+242853b5057e6347835099bf833eb16a2fa29ca8")]
 [assembly: System.Reflection.AssemblyProductAttribute("deleuze-mng")]
 [assembly: System.Reflection.AssemblyTitleAttribute("deleuze-mng")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

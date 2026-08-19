@@ -197,7 +197,7 @@ app.MapDelete("/api/mng/tenants/{tenantId}", async (string tenantId, TenantManag
 .WithName("DeleteTenant")
 .WithOpenApi();
 
-// 🛠️ 管理エンドポイント4: ユーザーの新規登録
+// 🛠️ 管理エンドポイント4: ユーザーの新規登録（修正後）
 app.MapPost("/api/mng/users", async (UserRegistrationRequest req, TenantManagementService mngService) =>
 {
     if (string.IsNullOrWhiteSpace(req.LoginId) || string.IsNullOrWhiteSpace(req.Password) || string.IsNullOrWhiteSpace(req.TenantId))
@@ -209,13 +209,19 @@ app.MapPost("/api/mng/users", async (UserRegistrationRequest req, TenantManageme
 
     try
     {
-        await mngService.CreateTenantAsync(normalizedTenantId);
+        // 💡 テナントが存在しない場合のみ作成を呼び出す（または catch して存在していればスキップする）
+        var existingTenants = await mngService.GetTenantsAsync();
+        if (!existingTenants.Any(t => t.TenantId == normalizedTenantId))
+        {
+            await mngService.CreateTenantAsync(normalizedTenantId);
+        }
+
         await mngService.RegisterUserAsync(req.LoginId, req.Password, normalizedTenantId);
         return Results.Ok(new { message = $"テナント '{normalizedTenantId}' にユーザー '{req.LoginId}' を登録しました。" });
     }
     catch (InvalidOperationException ex)
     {
-        // 💡 テナント重複・ユーザー重複エラー: 409 Conflict を返す
+        // 💡 ユーザー重複エラー等: 409 Conflict を返す
         app.Logger.LogWarning("登録重複エラー: {Message}", ex.Message);
         return Results.Conflict(new { error = ex.Message });
     }
