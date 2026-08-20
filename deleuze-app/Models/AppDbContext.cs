@@ -15,8 +15,6 @@ public class AppDbContext : DbContext
         _tenantProvider = tenantProvider;
     }
 
-    public DbSet<Product> Products { get; set; }
-    // UserProfile などの業務データを追加
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {

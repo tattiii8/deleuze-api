@@ -1,10 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using deleuze_app.Models;
+using DeleuzeApp.Models;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace deleuze_app.Services;
+namespace DeleuzeApp.Services;
 
 public class DatabaseHealthCheck : IHealthCheck
 {
@@ -17,7 +17,6 @@ public class DatabaseHealthCheck : IHealthCheck
 
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
-        // 非同期で安全にデータベースの接続確認を行う
         var canConnect = await _db.Database.CanConnectAsync(cancellationToken);
 
         return canConnect 
