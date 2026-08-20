@@ -4,3 +4,6 @@
 *.sh
 *.json
 *.hcl
+
+bin/
+obj/
