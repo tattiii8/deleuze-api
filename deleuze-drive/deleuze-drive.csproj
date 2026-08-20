@@ -23,6 +23,7 @@
 
     <!-- Health Checks -->
     <PackageReference Include="AWSSDK.S3" Version="3.7.*" />
+    <PackageReference Include="AWSSDK.Extensions.NETCore.Setup" Version="3.7.*" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="8.0.2" />
   </ItemGroup>
 
