@@ -1,4 +1,5 @@
 using System;
+using Amazon.S3;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -26,7 +27,11 @@ builder.Services.AddHttpContextAccessor();
 // ITenantProvider を JwtTenantProvider に登録
 builder.Services.AddScoped<ITenantProvider, JwtTenantProvider>();
 
-// ★ deleuze-auth (RS256 / JWKS) に連動する認証設定（JWT_SECRET の参照を削除）
+// AWS S3 サービスおよび IStorageService の登録
+builder.Services.AddAWSService<IAmazonS3>();
+builder.Services.AddScoped<IStorageService, S3StorageService>();
+
+// ★ deleuze-auth (RS256 / JWKS) に連動する認証設定
 var authAuthority = builder.Configuration["AUTH_INTERNAL_URL"] 
     ?? "http://deleuze-auth:8080/api/auth";
 

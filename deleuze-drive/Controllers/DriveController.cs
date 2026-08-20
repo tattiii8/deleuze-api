@@ -1,12 +1,13 @@
 using System;
-using System.IO;
 using System.Threading.Tasks;
+using Amazon.S3;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using DeleuzeDrive.Data;
 using DeleuzeDrive.Models;
+using DeleuzeDrive.Services;
 
 namespace DeleuzeDrive.Controllers
 {
@@ -16,10 +17,12 @@ namespace DeleuzeDrive.Controllers
     public class DriveController : ControllerBase
     {
         private readonly DriveDbContext _dbContext;
+        private readonly IStorageService _storageService;
 
-        public DriveController(DriveDbContext dbContext)
+        public DriveController(DriveDbContext dbContext, IStorageService storageService)
         {
             _dbContext = dbContext;
+            _storageService = storageService;
         }
 
         [HttpGet("files")]
@@ -35,27 +38,15 @@ namespace DeleuzeDrive.Controllers
             if (file == null || file.Length == 0)
                 return BadRequest("ファイルが空です。");
 
-            // 保存先ディレクトリが存在しない場合は作成
-            var uploadDir = "/tmp/uploads";
-            if (!Directory.Exists(uploadDir))
-            {
-                Directory.CreateDirectory(uploadDir);
-            }
-
-            var storagePath = Path.Combine(uploadDir, Guid.NewGuid() + "_" + file.FileName);
-
-            // 物理ファイルをディスクへ保存
-            await using (var stream = new FileStream(storagePath, FileMode.Create))
-            {
-                await file.CopyToAsync(stream);
-            }
+            // S3 ストレージへアップロードを行い、オブジェクトキーを取得
+            var key = await _storageService.UploadAsync(file);
 
             var metadata = new FileMetadata
             {
                 FileName = file.FileName,
                 ContentType = file.ContentType,
                 ByteSize = file.Length,
-                StoragePath = storagePath
+                StoragePath = key // S3 の Key を StoragePath として保存
             };
 
             _dbContext.Files.Add(metadata);
@@ -76,23 +67,22 @@ namespace DeleuzeDrive.Controllers
                 return NotFound(new { error = "指定されたファイルのメタデータが見つかりません。" });
             }
 
-            // 物理ストレージ上にファイルが存在するかチェック
-            if (!System.IO.File.Exists(fileMetadata.StoragePath))
+            try
             {
-                return NotFound(new { error = "物理ストレージ上にファイルが存在しません。" });
+                // S3 からオブジェクトのストリームを取得
+                var stream = await _storageService.DownloadAsync(fileMetadata.StoragePath);
+
+                var contentType = string.IsNullOrWhiteSpace(fileMetadata.ContentType)
+                    ? "application/octet-stream"
+                    : fileMetadata.ContentType;
+
+                // File メソッドを使用してストリームをレスポンスとして返却
+                return File(stream, contentType, fileDownloadName: fileMetadata.FileName);
             }
-
-            var contentType = string.IsNullOrWhiteSpace(fileMetadata.ContentType)
-                ? "application/octet-stream"
-                : fileMetadata.ContentType;
-
-            // PhysicalFile を使用してファイルをストリーミングレスポンスとして返す
-            // 第3引数に fileDownloadName を渡すことで、ブラウザ側で Content-Disposition ヘッダーが自動設定されます
-            return PhysicalFile(
-                fileMetadata.StoragePath,
-                contentType,
-                fileDownloadName: fileMetadata.FileName
-            );
+            catch (AmazonS3Exception)
+            {
+                return NotFound(new { error = "S3 上にファイルが存在しません。" });
+            }
         }
 
         [HttpDelete("files/{id:guid}")]
@@ -102,17 +92,14 @@ namespace DeleuzeDrive.Controllers
             if (file == null)
                 return NotFound();
 
-            // 物理ファイルが存在する場合は削除
-            if (System.IO.File.Exists(file.StoragePath))
+            // S3 上のオブジェクトを削除
+            try
             {
-                try
-                {
-                    System.IO.File.Delete(file.StoragePath);
-                }
-                catch (Exception)
-                {
-                    // ログ出力等の例外ハンドリングを適宜行う
-                }
+                await _storageService.DeleteAsync(file.StoragePath);
+            }
+            catch (Exception)
+            {
+                // ログ出力等の例外ハンドリングを適宜行う
             }
 
             _dbContext.Files.Remove(file);
