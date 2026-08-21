@@ -2,11 +2,12 @@ using System;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.OpenApi.Models; // ★ 追加
+using Microsoft.OpenApi.Models;
 using DeleuzeAuth.Data;
 using DeleuzeAuth.Services;
 
@@ -20,17 +21,19 @@ builder.Services.AddSingleton<IPasswordHasher, BCryptPasswordHasher>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddSingleton<TokenGenerator>(); // RSA鍵維持のためシングルトン
 
-// ★ Swagger / OpenAPI の登録（AddSwaggerGenの内部に SwaggerDoc を移動）
+// Swagger / OpenAPI の登録
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "deleuze-auth API", Version = "v1" });
 });
 
-// リバースプロキシ（Nginx）からの Forwarded ヘッダー対応設定を追加
+// リバースプロキシ（Nginx）からの Forwarded ヘッダー対応設定
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
-    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedPrefix;
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor 
+                             | ForwardedHeaders.XForwardedProto 
+                             | ForwardedHeaders.XForwardedHost;
     options.KnownNetworks.Clear();
     options.KnownProxies.Clear();
 });
@@ -40,79 +43,87 @@ var app = builder.Build();
 // リバースプロキシのヘッダー処理を有効化
 app.UseForwardedHeaders();
 
-// ★ 核心部分: Nginx から送られてくる `/api/auth` プレフィックスを自動除去・認識させる
+// Nginx から送られてくる `/api/auth` プレフィックスを自動除去・認識させる
 app.UsePathBase("/api/auth");
 
-// ★ Swagger UI のミドルウェア設定 (開発・確認環境で有効化)
+// Swagger UI のミドルウェア設定 (開発・確認環境で有効化)
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
 {
     app.UseSwagger(c =>
     {
         c.PreSerializeFilters.Add((swaggerDoc, httpReq) =>
         {
-            // X-Forwarded-Proto ヘッダーがあればそれを優先し、無ければ Request.Scheme を利用
-            var scheme = httpReq.Headers["X-Forwarded-Proto"].FirstOrDefault() ?? httpReq.Scheme;
-            
+            // スキームやホストを含めず、/api/auth の相対パスのみを指定（他のマイクロサービスと表示を統一）
+            var pathBase = string.IsNullOrEmpty(httpReq.PathBase.Value) 
+                ? "/api/auth" 
+                : httpReq.PathBase.Value;
+
             swaggerDoc.Servers = new System.Collections.Generic.List<OpenApiServer>
             {
-                new OpenApiServer { Url = $"{scheme}://{httpReq.Host.Value}{httpReq.PathBase.Value}" }
+                new OpenApiServer { Url = pathBase }
             };
         });
     });
 
     app.UseSwaggerUI(c =>
     {
-        // 修正: 先頭の '/' を削除し、PathBase 内部の相対パスとして指定
         c.SwaggerEndpoint("v1/swagger.json", "deleuze-auth API v1");
-        c.RoutePrefix = "swagger"; // https://<host>/api/auth/swagger でアクセス可能
+        c.RoutePrefix = "swagger";
     });
 }
 
-// ★ OIDCディスカバリドキュメント（案内所エンドポイント）
+// OIDCディスカバリドキュメント
 app.MapGet("/.well-known/openid-configuration", () =>
 {
-    // 末尾のスラッシュを除去して統一
     var externalUrl = (Environment.GetEnvironmentVariable("AUTH_EXTERNAL_URL") ?? "https://deleuze.lesure.net/api/auth").TrimEnd('/');
 
     return Results.Ok(new
     {
-        issuer = externalUrl,                                 // https://deleuze.lesure.net/api/auth
-        token_endpoint = $"{externalUrl}/connect/token",       // https://deleuze.lesure.net/api/auth/connect/token
-        jwks_uri = $"{externalUrl}/.well-known/jwks",         
+        issuer = externalUrl,
+        token_endpoint = $"{externalUrl}/connect/token",
+        jwks_uri = $"{externalUrl}/.well-known/jwks",
         id_token_signing_alg_values_supported = new[] { "RS256" }
     });
 });
 
-// JWKSエンドポイント（APIへの公開鍵配布所）
+// JWKSエンドポイント
 app.MapGet("/.well-known/jwks", (TokenGenerator tokenGenerator) => 
     Results.Ok(tokenGenerator.GetJwks()));
 
-// 本格仕様になったトークン発行エンドポイント（DB検証・生パスワード対応）
-app.MapPost("/connect/token", async (HttpContext context, IUserService userService, TokenGenerator tokenGenerator) =>
+// トークン発行エンドポイント（[FromForm] DTO バインドにより Swagger UI にフォーム入力欄を表示）
+app.MapPost("/connect/token", async (
+    [FromForm] TokenRequest request,
+    IUserService userService, 
+    TokenGenerator tokenGenerator) =>
 {
-    var form = await context.Request.ReadFormAsync();
-    var loginId = form["user_id"].ToString();
-    var password = form["password"].ToString(); 
-
-    if (string.IsNullOrEmpty(loginId) || string.IsNullOrEmpty(password))
+    if (string.IsNullOrEmpty(request.user_id) || string.IsNullOrEmpty(request.password))
     {
         return Results.Json(new { error = "invalid_request", message = "IDとパスワードは必須です。" }, statusCode: 400);
     }
 
-    var tenantId = await userService.AuthenticateAndGetTenantAsync(loginId, password);
+    var tenantId = await userService.AuthenticateAndGetTenantAsync(request.user_id, request.password);
 
     if (tenantId == null)
     {
         return Results.Json(new { error = "invalid_grant", message = "認証情報が正しくありません！" }, statusCode: 400);
     }
 
-    var token = tokenGenerator.GenerateJwt(loginId, tenantId);
+    var token = tokenGenerator.GenerateJwt(request.user_id, tenantId);
     
     return Results.Ok(new { 
         access_token = token, 
         token_type = "Bearer", 
         expires_in = 7200 
     });
-});
+})
+.DisableAntiforgery()
+.Accepts<TokenRequest>("application/x-www-form-urlencoded");
 
 app.Run();
+
+// Swagger フォーム入力バインド用 DTO
+public class TokenRequest
+{
+    public string user_id { get; set; } = string.Empty;
+    public string password { get; set; } = string.Empty;
+}
