@@ -2,11 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
 using DeleuzeMng.Services;
 using DeleuzeMng.Services.Clients;
 using DeleuzeMng.Services.Infrastructure;
-using DeleuzeMng.Data;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -37,10 +35,12 @@ if (enableMngAuth && string.IsNullOrEmpty(apiSecret))
     throw new InvalidOperationException("認証が有効ですが、環境変数 'MANAGEMENT_API_SECRET' が設定されていません。");
 }
 
-// 💡 マイクロサービス連携用 Client の DI 登録
+// 💡 マイクロサービス連携用 Client および Service の DI 登録
 builder.Services.AddHttpClient<IServiceProvisioningClient, DriveProvisioningClient>();
-
 builder.Services.AddScoped<TenantManagementService>();
+
+// 💡 コントローラーをサービスコンテナに追加
+builder.Services.AddControllers();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -72,7 +72,7 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-// リバースプロキシ（Nginx）からの Forwarded ヘッダー対応設定を追加
+// リバースプロキシ（Nginx）からの Forwarded ヘッダー対応設定
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedPrefix;
@@ -85,7 +85,7 @@ var app = builder.Build();
 // リバースプロキシのヘッダー処理を有効化
 app.UseForwardedHeaders();
 
-// ★ 核心部分: Nginx から送られてくる `/api/mng` プレフィックスを自動除去・認識させる
+// Nginx から送られてくる `/api/mng` プレフィックスを認識
 app.UsePathBase("/api/mng");
 
 if (!enableMngAuth)
@@ -96,21 +96,18 @@ if (!enableMngAuth)
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-// ★ Swagger UI の設定（UsePathBase を考慮し、パスを相対指定に変更）
+// Swagger UI の設定
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        // 修正: パスから /api/mng を削除
         c.SwaggerEndpoint("/api/mng/swagger/v1/swagger.json", "deleuze-mng API v1");
-        c.RoutePrefix = "swagger"; // https://<host>/api/mng/swagger でアクセス可能
+        c.RoutePrefix = "swagger";
     });
 }
 
 await DbInitializer.EnsureSeedDataAsync(authConnectionString);
-
-var tenantIdPattern = new Regex(@"^[a-z][a-z0-9_]{2,62}$", RegexOptions.Compiled);
 
 // 🔒 トークン検証ミドルウェア
 app.Use(async (context, next) =>
@@ -145,132 +142,12 @@ app.Use(async (context, next) =>
     await next();
 });
 
-// 🛠️ API エンドポイント
-// 修正: パスから /api/mng を削除（UsePathBase があるため）
-
-app.MapPost("/tenants", async (TenantCreationRequest req, TenantManagementService mngService) =>
-{
-    if (string.IsNullOrWhiteSpace(req.TenantId)) 
-        return Results.BadRequest(new { error = "TenantId は必須です。" });
-
-    string normalizedTenantId = req.TenantId.ToLower();
-    if (!tenantIdPattern.IsMatch(normalizedTenantId)) 
-        return Results.BadRequest(new { error = "TenantId の形式が不正です。" });
-
-    try
-    {
-        await mngService.CreateTenantAsync(normalizedTenantId, req.EnabledServices);
-        return Results.Ok(new { message = $"テナント '{normalizedTenantId}' の構築処理が完了しました。" });
-    }
-    catch (ArgumentException ex)
-    {
-        return Results.BadRequest(new { error = ex.Message });
-    }
-    catch (InvalidOperationException ex)
-    {
-        return Results.Conflict(new { error = ex.Message });
-    }
-    catch (Exception ex)
-    {
-        app.Logger.LogError(ex, "テナント作成エラー: {TenantId}", normalizedTenantId);
-        return Results.Problem("処理中にエラーが発生しました。", statusCode: StatusCodes.Status500InternalServerError);
-    }
-})
-.WithName("CreateTenant")
-.WithOpenApi();
-
-app.MapPost("/tenants/{tenantId}/services", async (string tenantId, EnableServiceRequest req, TenantManagementService mngService) =>
-{
-    if (string.IsNullOrWhiteSpace(req.ServiceKey))
-        return Results.BadRequest(new { error = "ServiceKey は必須です。" });
-
-    string normalizedTenantId = tenantId.ToLower();
-
-    try
-    {
-        await mngService.EnableServiceForTenantAsync(normalizedTenantId, req.ServiceKey);
-        return Results.Ok(new { message = $"テナント '{normalizedTenantId}' にサービス '{req.ServiceKey}' を追加有効化しました。" });
-    }
-    catch (ArgumentException ex)
-    {
-        return Results.BadRequest(new { error = ex.Message });
-    }
-    catch (InvalidOperationException ex)
-    {
-        return Results.Conflict(new { error = ex.Message });
-    }
-})
-.WithName("EnableServiceForTenant")
-.WithOpenApi();
-
-app.MapGet("/tenants", async (TenantManagementService mngService) =>
-{
-    var tenants = await mngService.GetTenantsAsync();
-    return Results.Ok(tenants);
-})
-.WithName("GetTenants")
-.WithOpenApi();
-
-app.MapDelete("/tenants/{tenantId}", async (string tenantId, TenantManagementService mngService) =>
-{
-    try
-    {
-        await mngService.DeleteTenantAsync(tenantId.ToLower());
-        return Results.NoContent();
-    }
-    catch (Exception ex)
-    {
-        app.Logger.LogError(ex, "テナント削除エラー: {TenantId}", tenantId);
-        return Results.Problem("削除処理中にエラーが発生しました。");
-    }
-})
-.WithName("DeleteTenant")
-.WithOpenApi();
-
-app.MapPost("/users", async (UserRegistrationRequest req, TenantManagementService mngService) =>
-{
-    if (string.IsNullOrWhiteSpace(req.LoginId) || string.IsNullOrWhiteSpace(req.Password) || string.IsNullOrWhiteSpace(req.TenantId))
-        return Results.BadRequest(new { error = "すべての項目を入力してください。" });
-
-    string normalizedTenantId = req.TenantId.ToLower();
-
-    try
-    {
-        var existingTenants = await mngService.GetTenantsAsync();
-        if (!existingTenants.Any(t => t.TenantId == normalizedTenantId))
-        {
-            await mngService.CreateTenantAsync(normalizedTenantId);
-        }
-
-        await mngService.RegisterUserAsync(req.LoginId, req.Password, normalizedTenantId);
-        return Results.Ok(new { message = $"テナント '{normalizedTenantId}' にユーザー '{req.LoginId}' を登録しました。" });
-    }
-    catch (InvalidOperationException ex)
-    {
-        return Results.Conflict(new { error = ex.Message });
-    }
-})
-.WithName("RegisterUser")
-.WithOpenApi();
-
-app.MapGet("/users", async (TenantManagementService mngService) =>
-{
-    var users = await mngService.GetUsersAsync();
-    return Results.Ok(users);
-})
-.WithName("GetUsers")
-.WithOpenApi();
-
-app.MapDelete("/users/{id:int}", async (int id, TenantManagementService mngService) =>
-{
-    bool deleted = await mngService.DeleteUserAsync(id);
-    return deleted ? Results.NoContent() : Results.NotFound(new { error = "指定されたユーザーが見つかりません。" });
-})
-.WithName("DeleteUser")
-.WithOpenApi();
+// 🛠️ コントローラーのルーティングをマッピング
+app.MapControllers();
 
 app.Run();
 
+// 🔑 トークン検証ロジック
 static (bool IsValid, string Reason) ValidateDynamicTokenWithReason(string rawToken, string secretKey, TimeSpan validDuration)
 {
     if (string.IsNullOrWhiteSpace(rawToken)) return (false, "トークンが空です。");
@@ -296,7 +173,3 @@ static (bool IsValid, string Reason) ValidateDynamicTokenWithReason(string rawTo
     }
     catch { return (false, "検証中に例外が発生しました。"); }
 }
-
-public record TenantCreationRequest(string TenantId, List<string>? EnabledServices = null);
-public record EnableServiceRequest(string ServiceKey);
-public record UserRegistrationRequest(string LoginId, string Password, string TenantId);

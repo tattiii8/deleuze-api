@@ -188,14 +188,42 @@ namespace DeleuzeMng.Services
         public async Task<IEnumerable<TenantInfo>> GetTenantsAsync()
         {
             await using var appConn = new NpgsqlConnection(_appConnString);
+            await appConn.OpenAsync();
+
             const string sql = @"
-                SELECT schema_name AS ""TenantId""
+                SELECT schema_name 
                 FROM information_schema.schemata
                 WHERE schema_name LIKE 'app_%'
                 ORDER BY schema_name;";
 
-            var schemas = await appConn.QueryAsync<string>(sql);
-            return schemas.Select(s => new TenantInfo(s.Replace("app_", "")));
+            var schemas = (await appConn.QueryAsync<string>(sql)).ToList();
+
+            // ベースとなるテナントID（app_flaubert のようなコア用スキーマ）を抽出
+            var baseTenants = schemas
+                .Select(s => s.Replace("app_", ""))
+                .Where(t => !t.Contains('_')) // app_flaubert_drive 等のサービス拡張スキーマを除外
+                .Distinct()
+                .ToList();
+
+            var result = new List<TenantInfo>();
+
+            foreach (var tenantId in baseTenants)
+            {
+                var services = new List<string>();
+
+                // サポートされている全クライアントに対して、判定用のスキーマが存在するか確認
+                foreach (var serviceKey in _serviceClients.Keys)
+                {
+                    if (schemas.Contains($"app_{tenantId}_{serviceKey}"))
+                    {
+                        services.Add(serviceKey);
+                    }
+                }
+
+                result.Add(new TenantInfo(tenantId, services));
+            }
+
+            return result;
         }
 
         public async Task<bool> DeleteUserAsync(int id)
@@ -243,5 +271,5 @@ namespace DeleuzeMng.Services
     }
 
     public record UserInfo(int Id, string LoginId, string TenantId, DateTime CreatedAt);
-    public record TenantInfo(string TenantId);
+    public record TenantInfo(string TenantId, List<string> Services);
 }
