@@ -2,7 +2,7 @@ name: CI Build Check
 
 on:
   push:
-    branches: [ develop ]
+    branches: [ sandbox ]
     paths:
       - 'deleuze-auth/**'
       - 'deleuze-app/**'
@@ -10,7 +10,7 @@ on:
       - 'deleuze-drive/**'
       - '.github/workflows/**'
   pull_request:
-    branches: [ develop ]
+    branches: [ sandbox ]
     paths:
       - 'deleuze-auth/**'
       - 'deleuze-app/**'
