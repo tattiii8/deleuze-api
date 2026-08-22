@@ -1,60 +1,53 @@
 using System;
-using System.Linq;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using DeleuzeMng.Services;
 
 namespace DeleuzeMng.Controllers
 {
     [ApiController]
-    [Route("users")]
+    [Route("api/[controller]")]
     public class UsersController : ControllerBase
     {
-        private readonly TenantManagementService _mngService;
+        private readonly ITenantManagementService _tenantService;
 
-        public UsersController(TenantManagementService mngService)
+        public UsersController(ITenantManagementService tenantService)
         {
-            _mngService = mngService;
+            _tenantService = tenantService;
         }
 
         [HttpGet]
         public async Task<IActionResult> GetUsers()
         {
-            var users = await _mngService.GetUsersAsync();
+            var users = await _tenantService.GetUsersAsync();
             return Ok(users);
         }
 
         [HttpPost]
-        public async Task<IActionResult> RegisterUser([FromBody] UserRegistrationRequest req)
+        public async Task<IActionResult> RegisterUser([FromBody] RegisterUserRequest request)
         {
-            if (string.IsNullOrWhiteSpace(req.LoginId) || string.IsNullOrWhiteSpace(req.Password) || string.IsNullOrWhiteSpace(req.TenantId))
-                return BadRequest(new { error = "すべての項目を入力してください。" });
-
-            string normalizedTenantId = req.TenantId.ToLower();
-
-            try
+            if (string.IsNullOrWhiteSpace(request.LoginId) || string.IsNullOrWhiteSpace(request.Password))
             {
-                var existingTenants = await _mngService.GetTenantsAsync();
-                if (!existingTenants.Any(t => t.TenantId == normalizedTenantId))
-                {
-                    await _mngService.CreateTenantAsync(normalizedTenantId);
-                }
+                return BadRequest("LoginId と Password は必須です。");
+            }
 
-                await _mngService.RegisterUserAsync(req.LoginId, req.Password, normalizedTenantId);
-                return Ok(new { message = $"テナント '{normalizedTenantId}' にユーザー '{req.LoginId}' を登録しました。" });
-            }
-            catch (InvalidOperationException ex)
-            {
-                return Conflict(new { error = ex.Message });
-            }
+            var success = await _tenantService.RegisterUserAsync(request.LoginId, request.Password, request.TenantId);
+            return success ? Ok() : StatusCode(500, "ユーザーの登録に失敗しました。");
         }
 
-        [HttpDelete("{id:int}")]
-        public async Task<IActionResult> DeleteUser(int id)
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteUser(object id)
         {
-            bool deleted = await _mngService.DeleteUserAsync(id);
-            return deleted ? NoContent() : NotFound(new { error = "指定されたユーザーが見つかりません。" });
+            // string 型へ変換して呼び出し
+            var success = await _tenantService.DeleteUserAsync(id.ToString() ?? string.Empty);
+            return success ? Ok() : NotFound("該当するユーザーが見つかりません。");
         }
+    }
+
+    public class RegisterUserRequest
+    {
+        public string LoginId { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+        public string TenantId { get; set; } = string.Empty;
     }
 }

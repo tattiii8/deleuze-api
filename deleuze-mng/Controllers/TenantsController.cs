@@ -1,154 +1,96 @@
 using System;
-using System.Text.RegularExpressions;
+using System.Collections.Generic;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
-using DeleuzeMng.Models;
 using DeleuzeMng.Services;
+using DeleuzeMng.Models;
 
 namespace DeleuzeMng.Controllers
 {
     [ApiController]
-    [Route("tenants")]
+    [Route("api/[controller]")]
     public class TenantsController : ControllerBase
     {
-        private readonly TenantManagementService _mngService;
-        private readonly ILogger<TenantsController> _logger;
-        private static readonly Regex TenantIdPattern = new(@"^[a-z][a-z0-9_]{2,62}$", RegexOptions.Compiled);
+        private readonly ITenantManagementService _tenantService;
 
-        public TenantsController(TenantManagementService mngService, ILogger<TenantsController> logger)
+        public TenantsController(ITenantManagementService tenantService)
         {
-            _mngService = mngService;
-            _logger = logger;
+            _tenantService = tenantService;
         }
 
         [HttpGet]
         public async Task<IActionResult> GetTenants()
         {
-            var tenants = await _mngService.GetTenantsAsync();
+            var tenants = await _tenantService.GetTenantsAsync();
             return Ok(tenants);
         }
 
         [HttpPost]
-        public async Task<IActionResult> CreateTenant([FromBody] TenantCreationRequest req)
+        public async Task<IActionResult> CreateTenant([FromBody] CreateTenantRequest request)
         {
-            if (string.IsNullOrWhiteSpace(req.TenantId))
-                return BadRequest(new { error = "TenantId は必須です。" });
+            if (string.IsNullOrWhiteSpace(request.TenantId))
+            {
+                return BadRequest("TenantId は必須です。");
+            }
 
-            string normalizedTenantId = req.TenantId.ToLower();
-            if (!TenantIdPattern.IsMatch(normalizedTenantId))
-                return BadRequest(new { error = "TenantId の形式が不正です。" });
+            // 第2引数は Name (string) を渡す。Services が指定されている場合は順次有効化
+            var success = await _tenantService.CreateTenantAsync(request.TenantId, request.Name ?? request.TenantId);
+            
+            if (request.Services != null && request.Services.Count > 0)
+            {
+                foreach (var serviceKey in request.Services)
+                {
+                    await _tenantService.EnableServiceForTenantAsync(request.TenantId, serviceKey);
+                }
+            }
 
-            try
-            {
-                await _mngService.CreateTenantAsync(normalizedTenantId, req.EnabledServices);
-                return Ok(new { message = $"テナント '{normalizedTenantId}' の構築処理が完了しました。" });
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(new { error = ex.Message });
-            }
-            catch (InvalidOperationException ex)
-            {
-                return Conflict(new { error = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "テナント作成エラー: {TenantId}", normalizedTenantId);
-                return StatusCode(StatusCodes.Status500InternalServerError, new { error = "処理中にエラーが発生しました。" });
-            }
+            return success ? Ok() : StatusCode(500, "テナントの作成に失敗しました。");
         }
 
         [HttpPost("{tenantId}/services")]
-        public async Task<IActionResult> EnableService(string tenantId, [FromBody] EnableServiceRequest req)
+        public async Task<IActionResult> EnableService(string tenantId, [FromBody] EnableServiceRequest request)
         {
-            if (string.IsNullOrWhiteSpace(req.ServiceKey))
-                return BadRequest(new { error = "ServiceKey は必須です。" });
-
-            string normalizedTenantId = tenantId.ToLower();
-
-            try
-            {
-                await _mngService.EnableServiceForTenantAsync(normalizedTenantId, req.ServiceKey);
-                return Ok(new { message = $"テナント '{normalizedTenantId}' にサービス '{req.ServiceKey}' を追加有効化しました。" });
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(new { error = ex.Message });
-            }
-            catch (InvalidOperationException ex)
-            {
-                return Conflict(new { error = ex.Message });
-            }
+            var success = await _tenantService.EnableServiceForTenantAsync(tenantId, request.ServiceKey);
+            return success ? Ok() : StatusCode(500, "サービスの有効化に失敗しました。");
         }
 
-        /// <summary>
-        /// テナントの API Key を発行（または再発行）します
-        /// </summary>
         [HttpPost("{tenantId}/api-key")]
         public async Task<IActionResult> GenerateApiKey(string tenantId)
         {
-            string normalizedTenantId = tenantId.ToLower();
-
-            try
-            {
-                var apiKey = await _mngService.GenerateApiKeyAsync(normalizedTenantId);
-                return Ok(new { apiKey });
-            }
-            catch (ArgumentException ex)
-            {
-                return NotFound(new { error = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "API Key 発行エラー: {TenantId}", normalizedTenantId);
-                return StatusCode(StatusCodes.Status500InternalServerError, new { error = "API Key の発行中にエラーが発生しました。" });
-            }
+            var apiKey = await _tenantService.GenerateApiKeyAsync(tenantId);
+            return Ok(new { apiKey });
         }
 
-        /// <summary>
-        /// テナントの認証モード（JwtOnly, ApiKeyOnly, Both）を変更します
-        /// </summary>
-        [HttpPatch("{tenantId}/auth-mode")]
-        public async Task<IActionResult> UpdateAuthMode(string tenantId, [FromBody] UpdateAuthModeRequest req)
+        [HttpPut("{tenantId}/auth-mode")]
+        public async Task<IActionResult> UpdateAuthMode(string tenantId, [FromBody] UpdateAuthModeRequest request)
         {
-            string normalizedTenantId = tenantId.ToLower();
-
-            try
-            {
-                await _mngService.UpdateAuthModeAsync(normalizedTenantId, req.AuthMode);
-                return Ok(new
-                {
-                    message = $"テナント '{normalizedTenantId}' の認証モードを '{req.AuthMode}' に更新しました。",
-                    tenantId = normalizedTenantId,
-                    authMode = req.AuthMode.ToString()
-                });
-            }
-            catch (ArgumentException ex)
-            {
-                return NotFound(new { error = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "認証モード更新エラー: {TenantId}", normalizedTenantId);
-                return StatusCode(StatusCodes.Status500InternalServerError, new { error = "認証モードの更新中にエラーが発生しました。" });
-            }
+            // AuthMode enum を int に明示的キャスト
+            var success = await _tenantService.UpdateAuthModeAsync(tenantId, (int)request.AuthMode);
+            return success ? Ok() : StatusCode(500, "認証モードの更新に失敗しました。");
         }
 
         [HttpDelete("{tenantId}")]
         public async Task<IActionResult> DeleteTenant(string tenantId)
         {
-            try
-            {
-                await _mngService.DeleteTenantAsync(tenantId.ToLower());
-                return NoContent();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "テナント削除エラー: {TenantId}", tenantId);
-                return StatusCode(StatusCodes.Status500InternalServerError, new { error = "削除処理中にエラーが発生しました。" });
-            }
+            var success = await _tenantService.DeleteTenantAsync(tenantId);
+            return success ? Ok() : NotFound("該当するテナントが見つかりません。");
         }
+    }
+
+    public class CreateTenantRequest
+    {
+        public string TenantId { get; set; } = string.Empty;
+        public string? Name { get; set; }
+        public List<string>? Services { get; set; }
+    }
+
+    public class EnableServiceRequest
+    {
+        public string ServiceKey { get; set; } = string.Empty;
+    }
+
+    public class UpdateAuthModeRequest
+    {
+        public AuthMode AuthMode { get; set; }
     }
 }
