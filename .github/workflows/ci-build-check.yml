@@ -10,13 +10,6 @@ on:
       - 'deleuze-drive/**'
       - '.github/workflows/**'
   pull_request:
-    branches: [ sandbox ]
-    paths:
-      - 'deleuze-auth/**'
-      - 'deleuze-app/**'
-      - 'deleuze-mng/**'
-      - 'deleuze-drive/**'
-      - '.github/workflows/**'
 
 jobs:
   changes:

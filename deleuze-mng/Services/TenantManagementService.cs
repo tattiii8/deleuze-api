@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Dapper;
 using Microsoft.Extensions.Configuration;
 using Npgsql;
+using DeleuzeMng.Models;
 using DeleuzeMng.Services.Infrastructure;
 
 namespace DeleuzeMng.Services
@@ -87,6 +89,54 @@ namespace DeleuzeMng.Services
                 throw new ArgumentException($"未対応のサービスキーです: '{serviceKey}'", nameof(serviceKey));
 
             await _serviceClients[serviceKey.ToLower()].InitializeTenantAsync(tenantId);
+        }
+
+        /// <summary>
+        /// テナントの API Key を発行（または更新）して Auth DB の public."Tenants" テーブルに保存します。
+        /// </summary>
+        public async Task<string> GenerateApiKeyAsync(string tenantId)
+        {
+            EnsureValidTenantId(tenantId);
+
+            var randomBytes = new byte[32];
+            using (var rng = RandomNumberGenerator.Create())
+            {
+                rng.GetBytes(randomBytes);
+            }
+            var newApiKey = $"sk_live_{Convert.ToHexString(randomBytes).ToLower()}";
+
+            await using var authConn = new NpgsqlConnection(_authConnString);
+            await authConn.OpenAsync();
+
+            const string sql = @"
+                INSERT INTO public.""Tenants"" (""Id"", ""Name"", ""ApiKey"", ""AuthMode"", ""CreatedAt"")
+                VALUES (@tenantId, @tenantId, @newApiKey, 0, CURRENT_TIMESTAMP)
+                ON CONFLICT (""Id"") DO UPDATE
+                SET ""ApiKey"" = EXCLUDED.""ApiKey"";";
+
+            await authConn.ExecuteAsync(sql, new { tenantId, newApiKey });
+
+            return newApiKey;
+        }
+
+        /// <summary>
+        /// テナントの認証モード（0: JwtOnly, 1: ApiKeyOnly, 2: Both）を更新します。
+        /// </summary>
+        public async Task UpdateAuthModeAsync(string tenantId, AuthMode authMode)
+        {
+            EnsureValidTenantId(tenantId);
+
+            await using var authConn = new NpgsqlConnection(_authConnString);
+            await authConn.OpenAsync();
+
+            const string sql = @"
+                INSERT INTO public.""Tenants"" (""Id"", ""Name"", ""AuthMode"", ""CreatedAt"")
+                VALUES (@tenantId, @tenantId, @authMode, CURRENT_TIMESTAMP)
+                ON CONFLICT (""Id"") DO UPDATE
+                SET ""AuthMode"" = EXCLUDED.""AuthMode"";";
+
+            int authModeInt = (int)authMode;
+            await authConn.ExecuteAsync(sql, new { tenantId, authMode = authModeInt });
         }
 
         private async Task CreateCoreAppSchemaAsync(string tenantId, string schemaName)
@@ -181,7 +231,7 @@ namespace DeleuzeMng.Services
                 SELECT ""Id"", ""LoginId"", ""TenantId"", ""CreatedAt"" 
                 FROM public.""Users"" 
                 ORDER BY ""Id"" DESC;";
-            
+
             return await authConn.QueryAsync<UserInfo>(sql);
         }
 
@@ -198,10 +248,9 @@ namespace DeleuzeMng.Services
 
             var schemas = (await appConn.QueryAsync<string>(sql)).ToList();
 
-            // ベースとなるテナントID（app_flaubert のようなコア用スキーマ）を抽出
             var baseTenants = schemas
                 .Select(s => s.Replace("app_", ""))
-                .Where(t => !t.Contains('_')) // app_flaubert_drive 等のサービス拡張スキーマを除外
+                .Where(t => !t.Contains('_'))
                 .Distinct()
                 .ToList();
 
@@ -211,7 +260,6 @@ namespace DeleuzeMng.Services
             {
                 var services = new List<string>();
 
-                // サポートされている全クライアントに対して、判定用のスキーマが存在するか確認
                 foreach (var serviceKey in _serviceClients.Keys)
                 {
                     if (schemas.Contains($"app_{tenantId}_{serviceKey}"))
@@ -253,10 +301,14 @@ namespace DeleuzeMng.Services
                 await client.RollbackTenantAsync(tenantId);
             }
 
-            // 3. 認証 DB からの関連ユーザー削除
+            // 3. 認証 DB からの関連ユーザーおよびテナント情報の削除
             await using var authConn = new NpgsqlConnection(_authConnString);
+            
             const string deleteUsersSql = @"DELETE FROM public.""Users"" WHERE ""TenantId"" = @tenantId;";
             await authConn.ExecuteAsync(deleteUsersSql, new { tenantId });
+
+            const string deleteTenantSql = @"DELETE FROM public.""Tenants"" WHERE ""Id"" = @tenantId;";
+            await authConn.ExecuteAsync(deleteTenantSql, new { tenantId });
         }
 
         private static void EnsureValidTenantId(string tenantId)
