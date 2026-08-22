@@ -1,18 +1,22 @@
-name: CI to AWS ECR
+name: CI Build Check
 
 on:
   push:
-    branches: [ main ]
+    branches: [ sandbox ]
     paths:
       - 'deleuze-auth/**'
       - 'deleuze-app/**'
       - 'deleuze-mng/**'
       - 'deleuze-drive/**'
       - '.github/workflows/**'
-
-env:
-  AWS_REGION: ap-northeast-1
-  ECR_REGISTRY: 871950640338.dkr.ecr.ap-northeast-1.amazonaws.com
+  pull_request:
+    branches: [ sandbox ]
+    paths:
+      - 'deleuze-auth/**'
+      - 'deleuze-app/**'
+      - 'deleuze-mng/**'
+      - 'deleuze-drive/**'
+      - '.github/workflows/**'
 
 jobs:
   changes:
@@ -33,7 +37,7 @@ jobs:
           mng:   ['deleuze-mng/**']
           drive: ['deleuze-drive/**']
 
-  build-and-push:
+  build-check:
     needs: changes
     runs-on: ubuntu-latest
     steps:
@@ -46,57 +50,38 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
-
-    - name: Log in to AWS ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v2
-
-    - name: Build and Push deleuze-auth
+    # deleuze-auth のビルドチェック
+    - name: Build check deleuze-auth
       if: ${{ needs.changes.outputs.auth == 'true' }}
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-auth
         platforms: linux/amd64
-        push: true
-        tags: |
-          ${{ env.ECR_REGISTRY }}/deleuze-auth:latest
-          ${{ env.ECR_REGISTRY }}/deleuze-auth:${{ github.sha }}
+        push: false # ECR にプッシュせずビルド成否のみ検証
 
-    - name: Build and Push deleuze-app
+    # deleuze-app のビルドチェック
+    - name: Build check deleuze-app
       if: ${{ needs.changes.outputs.app == 'true' }}
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-app
         platforms: linux/amd64
-        push: true
-        tags: |
-          ${{ env.ECR_REGISTRY }}/deleuze-app:latest
-          ${{ env.ECR_REGISTRY }}/deleuze-app:${{ github.sha }}
+        push: false
 
-    - name: Build and Push deleuze-mng
+    # deleuze-mng のビルドチェック
+    - name: Build check deleuze-mng
       if: ${{ needs.changes.outputs.mng == 'true' }}
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-mng
         platforms: linux/amd64
-        push: true
-        tags: |
-          ${{ env.ECR_REGISTRY }}/deleuze-mng:latest
-          ${{ env.ECR_REGISTRY }}/deleuze-mng:${{ github.sha }}
+        push: false
 
-    - name: Build and Push deleuze-drive
+    # deleuze-drive のビルドチェック
+    - name: Build check deleuze-drive
       if: ${{ needs.changes.outputs.drive == 'true' }}
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-drive
         platforms: linux/amd64
-        push: true
-        tags: |
-          ${{ env.ECR_REGISTRY }}/deleuze-drive:latest
-          ${{ env.ECR_REGISTRY }}/deleuze-drive:${{ github.sha }}
+        push: false

@@ -20,7 +20,6 @@ public class UserService : IUserService
         var user = await _context.Users.FirstOrDefaultAsync(u => u.LoginId == loginId);
         if (user == null) return null;
 
-        // 2. ★ここを修正：生文字比較から、BCryptを使ったハッシュ検証に戻す！
         if (!_passwordHasher.VerifyPassword(password, user.PasswordHash))
         {
             return null; 
