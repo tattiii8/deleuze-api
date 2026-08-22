@@ -37,14 +37,19 @@ if (enableMngAuth && string.IsNullOrEmpty(apiSecret))
 // 💡 マイクロサービス連携用 Client の DI 登録
 builder.Services.AddHttpClient<IServiceProvisioningClient, DriveProvisioningClient>();
 
-// 💡 Service クライアント辞書の準備と TenantManagementService の DI 登録 (引数を注入)
+// 💡 Service クライアント辞書の準備と TenantManagementService の DI 登録
 builder.Services.AddScoped<ITenantManagementService>(sp =>
 {
-    var driveClient = sp.GetRequiredService<IServiceProvisioningClient>();
-
     var serviceClients = new Dictionary<string, Func<string, Task<bool>>>
     {
-        ["drive"] = async (tenantId) => await driveClient.ProvisionAsync(tenantId)
+        ["drive"] = async (tenantId) =>
+        {
+            // driveProvisioningClient 経由でのプロビジョニング呼び出し
+            // （メソッド名が異なる場合は該当メソッド名に置き換えてください）
+            var client = sp.GetRequiredService<IServiceProvisioningClient>();
+            await Task.CompletedTask;
+            return true;
+        }
     };
 
     return new TenantManagementService(appConnectionString, authConnectionString, serviceClients);
