@@ -9,7 +9,6 @@ on:
       - 'deleuze-mng/**'
       - 'deleuze-drive/**'
       - '.github/workflows/**'
-  pull_request:
 
 jobs:
   changes:
