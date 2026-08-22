@@ -1,3 +1,5 @@
+using System;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -21,8 +23,15 @@ namespace DeleuzeDrive.Controllers
         [HttpPost("{tenantId}/initialize")]
         public async Task<IActionResult> InitializeTenant(string tenantId)
         {
+            // SQLインジェクション（パストラバーサル含む）を防ぐための入力検証
+            if (string.IsNullOrWhiteSpace(tenantId) || !Regex.IsMatch(tenantId, @"^[a-zA-Z0-9_-]+$"))
+            {
+                return BadRequest("無効なテナントID形式です。英数字、ハイフン、アンダースコアのみ使用できます。");
+            }
+
             string schemaName = $"app_{tenantId}";
 
+            #pragma warning disable EF1002 // パラメータ化できないDDL識別子のため、事前サニタイズの上で警告を抑制
             await _dbContext.Database.ExecuteSqlRawAsync($"CREATE SCHEMA IF NOT EXISTS \"{schemaName}\";");
 
             var createFilesSql = $@"
@@ -44,6 +53,7 @@ namespace DeleuzeDrive.Controllers
                     ""CreatedAt"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 );";
             await _dbContext.Database.ExecuteSqlRawAsync(createFoldersSql);
+            #pragma warning restore EF1002
 
             return Ok(new { message = $"Drive schema '{schemaName}' initialized successfully." });
         }
@@ -51,8 +61,18 @@ namespace DeleuzeDrive.Controllers
         [HttpDelete("{tenantId}")]
         public async Task<IActionResult> DeleteTenant(string tenantId)
         {
+            // SQLインジェクションを防ぐための入力検証
+            if (string.IsNullOrWhiteSpace(tenantId) || !Regex.IsMatch(tenantId, @"^[a-zA-Z0-9_-]+$"))
+            {
+                return BadRequest("無効なテナントID形式です。英数字、ハイフン、アンダースコアのみ使用できます。");
+            }
+
             string schemaName = $"app_{tenantId}";
+
+            #pragma warning disable EF1002
             await _dbContext.Database.ExecuteSqlRawAsync($"DROP SCHEMA IF EXISTS \"{schemaName}\" CASCADE;");
+            #pragma warning restore EF1002
+
             return NoContent();
         }
     }

@@ -1,4 +1,5 @@
 using System;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -39,12 +40,23 @@ namespace DeleuzeDrive.Controllers
             if (string.IsNullOrWhiteSpace(request.FileName))
                 return BadRequest("ファイル名が指定されていません。");
 
+            // 認証されたユーザーのクレーム等から TenantId を取得（システムの実装に合わせて調整してください）
+            // 例: request.TenantId から受け取る場合は request.TenantId を使用します
+            var tenantId = User.FindFirst("tenant_id")?.Value 
+                        ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                        ?? request.TenantId;
+
+            if (string.IsNullOrWhiteSpace(tenantId))
+            {
+                return BadRequest("テナントIDが取得できませんでした。");
+            }
+
             var contentType = string.IsNullOrWhiteSpace(request.ContentType)
                 ? "application/octet-stream"
                 : request.ContentType;
 
-            // 1. S3 署名付きアップロード URL と Key を生成
-            var (uploadUrl, key) = _storageService.GeneratePresignedUploadUrl(request.FileName, contentType);
+            // 1. S3 署名付きアップロード URL と Key を生成（tenantId を第1引数に指定）
+            var (uploadUrl, key) = _storageService.GeneratePresignedUploadUrl(tenantId, request.FileName, contentType);
 
             // 2. メタデータを DB に保存
             var metadata = new FileMetadata
@@ -119,5 +131,8 @@ namespace DeleuzeDrive.Controllers
         public string FileName { get; set; } = string.Empty;
         public string ContentType { get; set; } = string.Empty;
         public long ByteSize { get; set; }
+        
+        // クライアントのリクエストボディから直接 TenantId を受ける場合はこちらを使用
+        public string? TenantId { get; set; }
     }
 }
