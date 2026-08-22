@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using DeleuzeMng.Models; // AuthMode enum の定義場所に応じて調整してください
 
 namespace DeleuzeMng.Services
 {
@@ -16,7 +15,7 @@ namespace DeleuzeMng.Services
         Task<string> GenerateApiKeyAsync(string tenantId);
         Task<bool> UpdateAuthModeAsync(string tenantId, int authMode);
 
-        // ユーザー管理用
+        // ユーザー管理機能
         Task<IEnumerable<UserInfo>> GetUsersAsync();
         Task<bool> RegisterUserAsync(string loginId, string password, string tenantId);
         Task<bool> DeleteUserAsync(string userId);
