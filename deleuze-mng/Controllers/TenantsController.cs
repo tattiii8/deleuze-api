@@ -33,7 +33,6 @@ namespace DeleuzeMng.Controllers
                 return BadRequest("TenantId は必須です。");
             }
 
-            // 第2引数は Name (string) を渡す。Services が指定されている場合は順次有効化
             var success = await _tenantService.CreateTenantAsync(request.TenantId, request.Name ?? request.TenantId);
             
             if (request.Services != null && request.Services.Count > 0)
@@ -64,7 +63,6 @@ namespace DeleuzeMng.Controllers
         [HttpPut("{tenantId}/auth-mode")]
         public async Task<IActionResult> UpdateAuthMode(string tenantId, [FromBody] UpdateAuthModeRequest request)
         {
-            // AuthMode enum を int に明示的キャスト
             var success = await _tenantService.UpdateAuthModeAsync(tenantId, (int)request.AuthMode);
             return success ? Ok() : StatusCode(500, "認証モードの更新に失敗しました。");
         }
@@ -75,22 +73,5 @@ namespace DeleuzeMng.Controllers
             var success = await _tenantService.DeleteTenantAsync(tenantId);
             return success ? Ok() : NotFound("該当するテナントが見つかりません。");
         }
-    }
-
-    public class CreateTenantRequest
-    {
-        public string TenantId { get; set; } = string.Empty;
-        public string? Name { get; set; }
-        public List<string>? Services { get; set; }
-    }
-
-    public class EnableServiceRequest
-    {
-        public string ServiceKey { get; set; } = string.Empty;
-    }
-
-    public class UpdateAuthModeRequest
-    {
-        public AuthMode AuthMode { get; set; }
     }
 }
