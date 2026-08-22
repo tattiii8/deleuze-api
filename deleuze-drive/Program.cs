@@ -33,7 +33,7 @@ builder.Services.AddScoped<IStorageService, S3StorageService>();
 
 // ★ deleuze-auth (RS256 / JWKS) に連動する認証設定
 var authAuthority = builder.Configuration["AUTH_INTERNAL_URL"] 
-    ?? "http://deleuze-auth:8080/api/auth";
+    ?? "http://192.168.8.112:5001/api/auth";
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

@@ -18,12 +18,18 @@ namespace DeleuzeDrive.Services
         }
 
         /// <summary>
-        /// アップロード用の署名付き URL と S3 Key を生成します。
-        /// クライアントはこの URL に対して HTTP PUT リクエストでファイルを送信します。
+        /// テナントIDごとのパス（{tenantId}/{Guid}_{fileName}）に保存するための署名付き URL と S3 Key を生成します。
         /// </summary>
-        public (string UploadUrl, string Key) GeneratePresignedUploadUrl(string fileName, string contentType, double expireMinutes = 15)
+        public (string UploadUrl, string Key) GeneratePresignedUploadUrl(string tenantId, string fileName, string contentType, double expireMinutes = 15)
         {
-            var key = $"{Guid.NewGuid()}_{fileName}";
+            // tenantId パラメータのバリデーション（パス・トラバーサル防止）
+            if (string.IsNullOrWhiteSpace(tenantId))
+            {
+                throw new ArgumentNullException(nameof(tenantId));
+            }
+
+            // S3 の Key プレフィックス構造を構築: {tenantId}/{Guid}_{fileName}
+            var key = $"{tenantId.Trim('/')}/{Guid.NewGuid()}_{fileName}";
 
             var request = new GetPreSignedUrlRequest
             {
@@ -40,7 +46,6 @@ namespace DeleuzeDrive.Services
 
         /// <summary>
         /// ダウンロード用の署名付き URL を生成します。
-        /// クライアントはこの URL にアクセスしてファイルを直接取得します。
         /// </summary>
         public string GeneratePresignedDownloadUrl(string key, double expireMinutes = 15)
         {
