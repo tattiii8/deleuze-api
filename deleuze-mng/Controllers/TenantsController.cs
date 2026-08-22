@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using DeleuzeMng.Models;
 using DeleuzeMng.Services;
 
 namespace DeleuzeMng.Controllers
@@ -79,6 +80,59 @@ namespace DeleuzeMng.Controllers
             catch (InvalidOperationException ex)
             {
                 return Conflict(new { error = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// テナントの API Key を発行（または再発行）します
+        /// </summary>
+        [HttpPost("{tenantId}/api-key")]
+        public async Task<IActionResult> GenerateApiKey(string tenantId)
+        {
+            string normalizedTenantId = tenantId.ToLower();
+
+            try
+            {
+                var apiKey = await _mngService.GenerateApiKeyAsync(normalizedTenantId);
+                return Ok(new { apiKey });
+            }
+            catch (ArgumentException ex)
+            {
+                return NotFound(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "API Key 発行エラー: {TenantId}", normalizedTenantId);
+                return StatusCode(StatusCodes.Status500InternalServerError, new { error = "API Key の発行中にエラーが発生しました。" });
+            }
+        }
+
+        /// <summary>
+        /// テナントの認証モード（JwtOnly, ApiKeyOnly, Both）を変更します
+        /// </summary>
+        [HttpPatch("{tenantId}/auth-mode")]
+        public async Task<IActionResult> UpdateAuthMode(string tenantId, [FromBody] UpdateAuthModeRequest req)
+        {
+            string normalizedTenantId = tenantId.ToLower();
+
+            try
+            {
+                await _mngService.UpdateAuthModeAsync(normalizedTenantId, req.AuthMode);
+                return Ok(new
+                {
+                    message = $"テナント '{normalizedTenantId}' の認証モードを '{req.AuthMode}' に更新しました。",
+                    tenantId = normalizedTenantId,
+                    authMode = req.AuthMode.ToString()
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                return NotFound(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "認証モード更新エラー: {TenantId}", normalizedTenantId);
+                return StatusCode(StatusCodes.Status500InternalServerError, new { error = "認証モードの更新中にエラーが発生しました。" });
             }
         }
 
