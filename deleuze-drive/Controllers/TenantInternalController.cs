@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using DeleuzeDrive.Data;
+using DeleuzeDrive.Services;
 
 namespace DeleuzeDrive.Controllers
 {
@@ -14,10 +15,12 @@ namespace DeleuzeDrive.Controllers
     public class TenantInternalController : ControllerBase
     {
         private readonly DriveDbContext _dbContext;
+        private readonly IStorageService _storageService; // 👈 S3操作サービスの追加
 
-        public TenantInternalController(DriveDbContext dbContext)
+        public TenantInternalController(DriveDbContext dbContext, IStorageService storageService) // 👈 DIでIStorageServiceを受け取る
         {
             _dbContext = dbContext;
+            _storageService = storageService;
         }
 
         [HttpPost("{tenantId}/initialize")]
@@ -67,6 +70,18 @@ namespace DeleuzeDrive.Controllers
                 return BadRequest("無効なテナントID形式です。英数字、ハイフン、アンダースコアのみ使用できます。");
             }
 
+            // 1. S3 内の対象テナント用フォルダ（{tenantId}/...）のファイルを一括削除
+            try
+            {
+                await _storageService.DeletePrefixAsync(tenantId);
+            }
+            catch (Exception ex)
+            {
+                // 必要に応じてログを出力
+                return StatusCode(500, new { error = $"S3データの削除中にエラーが発生しました: {ex.Message}" });
+            }
+
+            // 2. DBのアプリケーションスキーマを削除
             string schemaName = $"app_{tenantId}";
 
             #pragma warning disable EF1002
