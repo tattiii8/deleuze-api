@@ -12,7 +12,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi.Models;
-using DeleuzeMng.Data
+using DeleuzeMng.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
