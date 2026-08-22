@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Amazon.S3;
 using Amazon.S3.Model;
@@ -22,14 +24,16 @@ namespace DeleuzeDrive.Services
         /// </summary>
         public (string UploadUrl, string Key) GeneratePresignedUploadUrl(string tenantId, string fileName, string contentType, double expireMinutes = 15)
         {
-            // tenantId パラメータのバリデーション（パス・トラバーサル防止）
             if (string.IsNullOrWhiteSpace(tenantId))
             {
                 throw new ArgumentNullException(nameof(tenantId));
             }
 
-            // S3 の Key プレフィックス構造を構築: {tenantId}/{Guid}_{fileName}
-            var key = $"{tenantId.Trim('/')}/{Guid.NewGuid()}_{fileName}";
+            // パス・トラバーサル防止のためファイル名部分の純粋な名前のみを抽出
+            var safeFileName = Path.GetFileName(fileName);
+
+            // S3 の Key プレフィックス構造を構築: {tenantId}/{Guid}_{safeFileName}
+            var key = $"{tenantId.Trim('/')}/{Guid.NewGuid()}_{safeFileName}";
 
             var request = new GetPreSignedUrlRequest
             {
@@ -60,9 +64,53 @@ namespace DeleuzeDrive.Services
             return _s3Client.GetPreSignedURL(request);
         }
 
+        /// <summary>
+        /// 指定された単一オブジェクトを削除します。
+        /// </summary>
         public async Task DeleteAsync(string key)
         {
             await _s3Client.DeleteObjectAsync(_bucketName, key);
+        }
+
+        /// <summary>
+        /// 指定されたプレフィックス（例: テナントID）配下のすべてのオブジェクトを一括削除します。
+        /// </summary>
+        public async Task DeletePrefixAsync(string prefix)
+        {
+            if (string.IsNullOrWhiteSpace(prefix))
+            {
+                return;
+            }
+
+            var formattedPrefix = prefix.EndsWith("/") ? prefix : $"{prefix}/";
+
+            var listRequest = new ListObjectsV2Request
+            {
+                BucketName = _bucketName,
+                Prefix = formattedPrefix
+            };
+
+            ListObjectsV2Response listResponse;
+            do
+            {
+                listResponse = await _s3Client.ListObjectsV2Async(listRequest);
+
+                if (listResponse.S3Objects.Count > 0)
+                {
+                    var deleteRequest = new DeleteObjectsRequest
+                    {
+                        BucketName = _bucketName,
+                        Objects = listResponse.S3Objects
+                            .Select(obj => new KeyVersion { Key = obj.Key })
+                            .ToList()
+                    };
+
+                    await _s3Client.DeleteObjectsAsync(deleteRequest);
+                }
+
+                listRequest.ContinuationToken = listResponse.NextContinuationToken;
+
+            } while (listResponse.IsTruncated);
         }
     }
 }
