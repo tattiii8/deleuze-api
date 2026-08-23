@@ -61,7 +61,14 @@ namespace DeleuzeMng.Services
 
                 foreach (var serviceKey in _serviceClients.Keys)
                 {
-                    if (schemas.Contains($"app_{tenantId}_{serviceKey}"))
+                    // 💡 drive サービスの場合は app_{tenantId} の存在で判定
+                    bool isEnabled = serviceKey switch
+                    {
+                        "drive" => schemas.Contains($"app_{tenantId}"),
+                        _ => schemas.Contains($"app_{tenantId}_{serviceKey}")
+                    };
+
+                    if (isEnabled)
                     {
                         services.Add(serviceKey);
                     }
@@ -115,7 +122,14 @@ namespace DeleuzeMng.Services
             var services = new List<string>();
             foreach (var serviceKey in _serviceClients.Keys)
             {
-                if (schemas.Contains($"app_{tenantId}_{serviceKey}"))
+                // 💡 drive サービスの場合は app_{tenantId} の存在で判定
+                bool isEnabled = serviceKey switch
+                {
+                    "drive" => schemas.Contains($"app_{tenantId}"),
+                    _ => schemas.Contains($"app_{tenantId}_{serviceKey}")
+                };
+
+                if (isEnabled)
                 {
                     services.Add(serviceKey);
                 }
@@ -170,6 +184,30 @@ namespace DeleuzeMng.Services
             }
 
             return await clientFunc(tenantId);
+        }
+
+        public async Task<bool> DisableServiceForTenantAsync(string tenantId, string serviceKey)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(serviceKey))
+            {
+                return false;
+            }
+
+            // 💡 _serviceClients 経由で各サービスの削除エンドポイントを呼び出す
+            if (_serviceClients.TryGetValue(serviceKey, out var clientFunc))
+            {
+                return await clientFunc(tenantId);
+            }
+
+            // フォールバック処理: app_{tenantId}_{serviceKey} スキーマを直接削除
+            await using var appConn = new NpgsqlConnection(_appConnString);
+            await appConn.OpenAsync();
+
+            string schemaName = $"app_{tenantId}_{serviceKey}";
+            string dropSchemaSql = $"DROP SCHEMA IF EXISTS \"{schemaName}\" CASCADE;";
+
+            await appConn.ExecuteAsync(dropSchemaSql);
+            return true;
         }
 
         public async Task<string> GenerateApiKeyAsync(string tenantId)
