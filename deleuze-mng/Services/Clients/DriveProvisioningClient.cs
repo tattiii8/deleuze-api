@@ -43,5 +43,17 @@ namespace DeleuzeMng.Services.Clients
                 throw new InvalidOperationException($"Drive サービスのデプロビジョニング（削除）に失敗しました ({response.StatusCode}): {error}");
             }
         }
+
+        // 👈 追加: 既存テナントのマイグレーション（スキーマアップデート）要求メソッド
+        public async Task MigrateTenantAsync(string tenantId)
+        {
+            var response = await _httpClient.PostAsync($"internal/tenants/{tenantId}/migrate", null);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                throw new InvalidOperationException($"Drive サービスのマイグレーションに失敗しました ({response.StatusCode}): {error}");
+            }
+        }
     }
 }
