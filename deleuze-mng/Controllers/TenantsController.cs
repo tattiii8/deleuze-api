@@ -77,6 +77,25 @@ namespace DeleuzeMng.Controllers
             return success ? Ok() : StatusCode(500, "サービスの無効化に失敗しました。");
         }
 
+        // 👈 追加: 指定テナントの全サービススキーマに対してマイグレーションを実行するエンドポイント
+        [HttpPost("{tenantId}/migrate")]
+        public async Task<IActionResult> MigrateTenant(string tenantId)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId))
+            {
+                return BadRequest("テナントIDが無効です。");
+            }
+
+            var success = await _tenantService.MigrateAllServicesForTenantAsync(tenantId);
+            
+            if (!success)
+            {
+                return StatusCode(500, new { error = $"テナント '{tenantId}' のマイグレーション処理中にエラーが発生しました。" });
+            }
+
+            return Ok(new { message = $"Tenant '{tenantId}' migrated successfully across all services." });
+        }
+
         [HttpPost("{tenantId}/apikey")]
         public async Task<IActionResult> GenerateApiKey(string tenantId)
         {
