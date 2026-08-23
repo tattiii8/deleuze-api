@@ -73,7 +73,7 @@ builder.Services.AddHealthChecks().AddDbContextCheck<AuthDbContext>("Database");
 
 var app = builder.Build();
 
-// ★ 追加: ForwardedHeaders と UsePathBase を適用
+// ForwardedHeaders と UsePathBase を適用
 app.UseForwardedHeaders();
 app.UsePathBase("/api/auth");
 
@@ -82,8 +82,8 @@ if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Ena
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        // ★ 修正: UsePathBase 配下のため相対パス指定にする
-        c.SwaggerEndpoint("v1/swagger.json", "deleuze-auth API v1");
+        // ★ 先頭から完全なパスを指定（deleuze-drive と完全同一）
+        c.SwaggerEndpoint("/api/auth/swagger/v1/swagger.json", "deleuze-auth API v1");
         c.RoutePrefix = "swagger";
     });
 }
