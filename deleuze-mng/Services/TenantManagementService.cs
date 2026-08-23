@@ -61,7 +61,6 @@ namespace DeleuzeMng.Services
 
                 foreach (var serviceKey in _serviceClients.Keys)
                 {
-                    // 💡 drive サービスの場合は app_{tenantId} の存在で判定
                     bool isEnabled = serviceKey switch
                     {
                         "drive" => schemas.Contains($"app_{tenantId}"),
@@ -122,7 +121,6 @@ namespace DeleuzeMng.Services
             var services = new List<string>();
             foreach (var serviceKey in _serviceClients.Keys)
             {
-                // 💡 drive サービスの場合は app_{tenantId} の存在で判定
                 bool isEnabled = serviceKey switch
                 {
                     "drive" => schemas.Contains($"app_{tenantId}"),
@@ -193,13 +191,11 @@ namespace DeleuzeMng.Services
                 return false;
             }
 
-            // 💡 _serviceClients 経由で各サービスの削除エンドポイントを呼び出す
             if (_serviceClients.TryGetValue(serviceKey, out var clientFunc))
             {
                 return await clientFunc(tenantId);
             }
 
-            // フォールバック処理: app_{tenantId}_{serviceKey} スキーマを直接削除
             await using var appConn = new NpgsqlConnection(_appConnString);
             await appConn.OpenAsync();
 

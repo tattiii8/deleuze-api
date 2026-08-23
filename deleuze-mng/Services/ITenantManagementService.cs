@@ -15,6 +15,7 @@ namespace DeleuzeMng.Services
         Task<bool> CreateTenantAsync(string tenantId, string name = "");
         Task<bool> DeleteTenantAsync(string tenantId);
         Task<bool> EnableServiceForTenantAsync(string tenantId, string serviceKey);
+        Task<bool> DisableServiceForTenantAsync(string tenantId, string serviceKey);
         Task<string> GenerateApiKeyAsync(string tenantId);
         Task<bool> UpdateAuthModeAsync(string tenantId, int authMode);
 

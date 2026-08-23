@@ -44,10 +44,9 @@ builder.Services.AddScoped<ITenantManagementService>(sp =>
     {
         ["drive"] = async (tenantId) =>
         {
-            // driveProvisioningClient 経由でのプロビジョニング呼び出し
-            // （メソッド名が異なる場合は該当メソッド名に置き換えてください）
             var client = sp.GetRequiredService<IServiceProvisioningClient>();
-            await Task.CompletedTask;
+            // 💡 インターフェースの InitializeTenantAsync を呼び出し、完了後に true を返す
+            await client.InitializeTenantAsync(tenantId);
             return true;
         }
     };

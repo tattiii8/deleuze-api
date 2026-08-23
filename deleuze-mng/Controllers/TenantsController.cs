@@ -29,8 +29,6 @@ namespace DeleuzeMng.Controllers
         public async Task<IActionResult> GetTenantById(string tenantId)
         {
             var tenant = await _tenantService.GetTenantByIdAsync(tenantId);
-
-            // 💡 .HasValue ではなく is null で判定
             if (tenant is null)
             {
                 return NotFound("該当するテナントが見つかりません。");
@@ -65,6 +63,18 @@ namespace DeleuzeMng.Controllers
         {
             var success = await _tenantService.EnableServiceForTenantAsync(tenantId, request.ServiceKey);
             return success ? Ok() : StatusCode(500, "サービスの有効化に失敗しました。");
+        }
+
+        [HttpDelete("{tenantId}/services")]
+        public async Task<IActionResult> DisableService(string tenantId, [FromBody] DisableServiceRequest request)
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.ServiceKey))
+            {
+                return BadRequest("ServiceKey は必須です。");
+            }
+
+            var success = await _tenantService.DisableServiceForTenantAsync(tenantId, request.ServiceKey);
+            return success ? Ok() : StatusCode(500, "サービスの無効化に失敗しました。");
         }
 
         [HttpPost("{tenantId}/apikey")]

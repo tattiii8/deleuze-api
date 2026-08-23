@@ -21,6 +21,12 @@ namespace DeleuzeMng.Models
         public string ServiceKey { get; set; } = string.Empty;
     }
 
+    // 💡 追加: サービス無効化用のリクエストボディ型
+    public class DisableServiceRequest
+    {
+        public string ServiceKey { get; set; } = string.Empty;
+    }
+
     public class UpdateAuthModeRequest
     {
         public AuthMode AuthMode { get; set; }
