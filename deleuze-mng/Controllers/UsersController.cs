@@ -35,17 +35,17 @@ namespace DeleuzeMng.Controllers
             return success ? Ok() : StatusCode(500, "ユーザーの登録に失敗しました。");
         }
 
-    [HttpDelete("{id}")]
-    public async Task<IActionResult> DeleteUser([FromRoute] string id)
-    {
-    if (string.IsNullOrWhiteSpace(id))
-    {
-        return BadRequest("ID は必須です。");
-    }
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteUser([FromRoute] string id)
+        {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return BadRequest("ID は必須です。");
+        }
 
-    var success = await _tenantService.DeleteUserAsync(id);
-    return success ? Ok() : NotFound("該当するユーザーが見つかりません。");
-}
+        var success = await _tenantService.DeleteUserAsync(id);
+        return success ? Ok() : NotFound("該当するユーザーが見つかりません。");
+       }
     }
 
     public class RegisterUserRequest
