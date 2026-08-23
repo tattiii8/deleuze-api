@@ -1,10 +1,10 @@
-name: ECRに本番環境イメージをプッシュ
+name: 本番環境イメージをECRにPUSH
 
 on:
   push:
     branches: [ main ]
     paths:
-      - 'deleuze-shared/**'   # ★ 追加: 共通モジュールの変更検知
+      - 'deleuze-shared/**'   # 共通モジュールの変更検知
       - 'deleuze-auth/**'
       - 'deleuze-app/**'
       - 'deleuze-mng/**'
@@ -60,7 +60,6 @@ jobs:
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
 
-    # ★ deleuze-shared または対象サービスに変更があった場合にビルド＆プッシュ
     - name: Build and Push deleuze-auth
       if: ${{ needs.changes.outputs.auth == 'true' || needs.changes.outputs.shared == 'true' }}
       uses: docker/build-push-action@v5
