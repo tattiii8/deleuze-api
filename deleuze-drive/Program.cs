@@ -12,7 +12,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using DeleuzeDrive.Data;
 using DeleuzeDrive.Services;
-using DeleuzeDrive.Authentication; // ★ 追加
+using DeleuzeDrive.Authentication;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -36,14 +36,14 @@ builder.Services.AddScoped<IStorageService, S3StorageService>();
 var authAuthority = builder.Configuration["AUTH_INTERNAL_URL"] 
     ?? "http://192.168.8.112:5001/api/auth";
 
-// ★ deleuze-auth 内部検証 API 呼び出し用の HttpClient 登録
+// deleuze-auth 内部検証 API 呼び出し用の HttpClient 登録
 builder.Services.AddHttpClient("AuthService", client =>
 {
     var baseUrl = authAuthority.EndsWith("/") ? authAuthority : authAuthority + "/";
     client.BaseAddress = new Uri(baseUrl);
 });
 
-// ★ SmartAuth (PolicyScheme) による動的認証切替
+// SmartAuth (PolicyScheme) による動的認証切替
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultScheme = "SmartAuth";
@@ -53,7 +53,6 @@ builder.Services.AddAuthentication(options =>
 {
     options.ForwardDefaultSelector = context =>
     {
-        // X-Api-Key ヘッダーの有無でルーティングを切り替え
         if (context.Request.Headers.ContainsKey("X-Api-Key"))
         {
             return ApiKeyAuthenticationOptions.DefaultScheme;
@@ -80,7 +79,7 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// Swagger UI で Bearer と ApiKey の両方を設定可能にする
+// Swagger UI の設定
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "deleuze-drive API", Version = "v1" });
@@ -94,7 +93,6 @@ builder.Services.AddSwaggerGen(c =>
         Scheme = "Bearer"
     });
 
-    // ★ Swagger 用 ApiKey 定義の追加
     c.AddSecurityDefinition("ApiKey", new OpenApiSecurityScheme
     {
         Description = "deleuze-mng で発行された X-Api-Key を入力してください。",
@@ -130,7 +128,7 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-// リバースプロキシ（Nginx）からの Forwarded ヘッダー対応
+// リバースプロキシからの Forwarded ヘッダー対応
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedPrefix;

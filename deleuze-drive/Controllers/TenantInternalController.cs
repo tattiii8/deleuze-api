@@ -11,7 +11,7 @@ namespace DeleuzeDrive.Controllers
 {
     [ApiController]
     [AllowAnonymous] // 内部管理APIはアクセストークン不要
-    [Route("internal/tenants")]
+    [Route("api/drive/internal/tenants")] // 👈 プレフィックスに合わせて修正
     public class TenantInternalController : ControllerBase
     {
         private readonly DriveDbContext _dbContext;
@@ -75,12 +75,6 @@ namespace DeleuzeDrive.Controllers
             try
             {
                 // 既存テナントのスキーマに対して最新のマイグレーションや追加のDDL適用を行う
-                // ※ Entity Framework Coreのマイグレーション機能や、
-                // 必要に応じて追加テーブル作成・カラム追加などのSQLを実行します。
-                
-                // 例: 既存スキーマが存在することを前提に、追加のアップデートSQLや Migrate を実行
-                // await _dbContext.Database.MigrateAsync();
-
                 return Ok(new { message = $"Migration completed for tenant schema '{schemaName}' in drive." });
             }
             catch (Exception ex)
