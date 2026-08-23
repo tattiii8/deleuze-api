@@ -74,7 +74,7 @@ namespace DeleuzeMng.Controllers
             return Ok(new { apiKey });
         }
 
-        [HttpPut("{tenantId}/authmode")]
+        [HttpPatch("{tenantId}/authmode")]
         public async Task<IActionResult> UpdateAuthMode(string tenantId, [FromBody] UpdateAuthModeRequest request)
         {
             var success = await _tenantService.UpdateAuthModeAsync(tenantId, (int)request.AuthMode);
