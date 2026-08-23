@@ -12,6 +12,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using DeleuzeDrive.Data;
 using DeleuzeDrive.Services;
+using DeleuzeDrive.Authentication; // ★ 追加
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -31,29 +32,55 @@ builder.Services.AddScoped<ITenantProvider, JwtTenantProvider>();
 builder.Services.AddAWSService<IAmazonS3>();
 builder.Services.AddScoped<IStorageService, S3StorageService>();
 
-// ★ deleuze-auth (RS256 / JWKS) に連動する認証設定
+// deleuze-auth の基本URL
 var authAuthority = builder.Configuration["AUTH_INTERNAL_URL"] 
     ?? "http://192.168.8.112:5001/api/auth";
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+// ★ deleuze-auth 内部検証 API 呼び出し用の HttpClient 登録
+builder.Services.AddHttpClient("AuthService", client =>
+{
+    var baseUrl = authAuthority.EndsWith("/") ? authAuthority : authAuthority + "/";
+    client.BaseAddress = new Uri(baseUrl);
+});
+
+// ★ SmartAuth (PolicyScheme) による動的認証切替
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultScheme = "SmartAuth";
+    options.DefaultChallengeScheme = "SmartAuth";
+})
+.AddPolicyScheme("SmartAuth", "JWT or ApiKey", options =>
+{
+    options.ForwardDefaultSelector = context =>
     {
-        options.Authority = authAuthority;
-        options.RequireHttpsMetadata = false;
-        options.TokenValidationParameters = new TokenValidationParameters
+        // X-Api-Key ヘッダーの有無でルーティングを切り替え
+        if (context.Request.Headers.ContainsKey("X-Api-Key"))
         {
-            ValidateIssuer = false,
-            ValidateAudience = false,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ClockSkew = TimeSpan.Zero
-        };
-    });
+            return ApiKeyAuthenticationOptions.DefaultScheme;
+        }
+        return JwtBearerDefaults.AuthenticationScheme;
+    };
+})
+.AddScheme<ApiKeyAuthenticationOptions, ApiKeyAuthenticationHandler>(
+    ApiKeyAuthenticationOptions.DefaultScheme, _ => { })
+.AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
+{
+    options.Authority = authAuthority;
+    options.RequireHttpsMetadata = false;
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = false,
+        ValidateAudience = false,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ClockSkew = TimeSpan.Zero
+    };
+});
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// Swagger UI で「Authorize」ボタンから Bearer トークンを設定可能にする
+// Swagger UI で Bearer と ApiKey の両方を設定可能にする
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "deleuze-drive API", Version = "v1" });
@@ -67,6 +94,15 @@ builder.Services.AddSwaggerGen(c =>
         Scheme = "Bearer"
     });
 
+    // ★ Swagger 用 ApiKey 定義の追加
+    c.AddSecurityDefinition("ApiKey", new OpenApiSecurityScheme
+    {
+        Description = "deleuze-mng で発行された X-Api-Key を入力してください。",
+        Name = "X-Api-Key",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey
+    });
+
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
@@ -76,6 +112,17 @@ builder.Services.AddSwaggerGen(c =>
                 {
                     Type = ReferenceType.SecurityScheme,
                     Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        },
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "ApiKey"
                 }
             },
             Array.Empty<string>()
