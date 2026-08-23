@@ -24,7 +24,7 @@ namespace DeleuzeMng.Services.Clients
 
         public async Task InitializeTenantAsync(string tenantId)
         {
-            var response = await _httpClient.PostAsync($"/internal/tenants/{tenantId}/initialize", null);
+            var response = await _httpClient.PostAsync($"internal/tenants/{tenantId}/initialize", null);
             
             if (!response.IsSuccessStatusCode)
             {
@@ -35,13 +35,12 @@ namespace DeleuzeMng.Services.Clients
 
         public async Task RollbackTenantAsync(string tenantId)
         {
-            try
+            var response = await _httpClient.DeleteAsync($"internal/tenants/{tenantId}");
+
+            if (!response.IsSuccessStatusCode)
             {
-                await _httpClient.DeleteAsync($"/internal/tenants/{tenantId}");
-            }
-            catch
-            {
-                // ロールバック失敗時の例外はログ記録等に留め、メイン処理を妨げない
+                var error = await response.Content.ReadAsStringAsync();
+                throw new InvalidOperationException($"Drive サービスのデプロビジョニング（削除）に失敗しました ({response.StatusCode}): {error}");
             }
         }
     }

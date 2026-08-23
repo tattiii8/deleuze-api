@@ -13,15 +13,18 @@ namespace DeleuzeMng.Services
         private readonly string _appConnString;
         private readonly string _authConnString;
         private readonly Dictionary<string, Func<string, Task<bool>>> _serviceClients;
+        private readonly Dictionary<string, Func<string, Task<bool>>> _disableServiceClients;
 
         public TenantManagementService(
             string appConnString,
             string authConnString,
-            Dictionary<string, Func<string, Task<bool>>> serviceClients)
+            Dictionary<string, Func<string, Task<bool>>> serviceClients,
+            Dictionary<string, Func<string, Task<bool>>> disableServiceClients)
         {
             _appConnString = appConnString;
             _authConnString = authConnString;
             _serviceClients = serviceClients;
+            _disableServiceClients = disableServiceClients;
         }
 
         public async Task<IEnumerable<TenantInfo>> GetTenantsAsync()
@@ -165,6 +168,22 @@ namespace DeleuzeMng.Services
 
         public async Task<bool> DeleteTenantAsync(string tenantId)
         {
+            if (string.IsNullOrWhiteSpace(tenantId)) return false;
+
+            // 1. deleuze-drive 等の各内部 DELETE API をコールして S3・DBスキーマを削除
+            foreach (var disableFunc in _disableServiceClients.Values)
+            {
+                try
+                {
+                    await disableFunc(tenantId);
+                }
+                catch
+                {
+                    // 未接続・削除済みの場合の例外は吸収
+                }
+            }
+
+            // 2. Auth DB からテナント情報を削除
             await using var authConn = new NpgsqlConnection(_authConnString);
             await authConn.OpenAsync();
 
@@ -191,19 +210,13 @@ namespace DeleuzeMng.Services
                 return false;
             }
 
-            if (_serviceClients.TryGetValue(serviceKey, out var clientFunc))
+            // Client 経由で deleuze-drive の DELETE API を呼び出す
+            if (_disableServiceClients.TryGetValue(serviceKey, out var disableFunc))
             {
-                return await clientFunc(tenantId);
+                return await disableFunc(tenantId);
             }
 
-            await using var appConn = new NpgsqlConnection(_appConnString);
-            await appConn.OpenAsync();
-
-            string schemaName = $"app_{tenantId}_{serviceKey}";
-            string dropSchemaSql = $"DROP SCHEMA IF EXISTS \"{schemaName}\" CASCADE;";
-
-            await appConn.ExecuteAsync(dropSchemaSql);
-            return true;
+            return false;
         }
 
         public async Task<string> GenerateApiKeyAsync(string tenantId)

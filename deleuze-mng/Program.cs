@@ -40,18 +40,34 @@ builder.Services.AddHttpClient<IServiceProvisioningClient, DriveProvisioningClie
 // 💡 Service クライアント辞書の準備と TenantManagementService の DI 登録
 builder.Services.AddScoped<ITenantManagementService>(sp =>
 {
+    var client = sp.GetRequiredService<IServiceProvisioningClient>();
+
+    // 💡 有効化（プロビジョニング）用クライアント辞書
     var serviceClients = new Dictionary<string, Func<string, Task<bool>>>
     {
-        ["drive"] = async (tenantId) =>
+        [client.ServiceKey] = async (tenantId) =>
         {
-            var client = sp.GetRequiredService<IServiceProvisioningClient>();
-            // 💡 インターフェースの InitializeTenantAsync を呼び出し、完了後に true を返す
             await client.InitializeTenantAsync(tenantId);
             return true;
         }
     };
 
-    return new TenantManagementService(appConnectionString, authConnectionString, serviceClients);
+    // 💡 無効化（デプロビジョニング・削除）用クライアント辞書
+    var disableServiceClients = new Dictionary<string, Func<string, Task<bool>>>
+    {
+        [client.ServiceKey] = async (tenantId) =>
+        {
+            await client.RollbackTenantAsync(tenantId);
+            return true;
+        }
+    };
+
+    return new TenantManagementService(
+        appConnectionString, 
+        authConnectionString, 
+        serviceClients, 
+        disableServiceClients
+    );
 });
 
 // コンストラクター直接注入や具象型解決が必要な場合のフォールバック登録
