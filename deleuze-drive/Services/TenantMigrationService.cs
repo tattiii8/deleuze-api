@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using DeleuzeDrive.Data;
 
 namespace DeleuzeDrive.Services
@@ -17,15 +18,22 @@ namespace DeleuzeDrive.Services
     {
         private readonly DriveDbContext _dbContext;
         private readonly IHostEnvironment _env;
+        private readonly ILogger<TenantMigrationService> _logger;
 
-        public TenantMigrationService(DriveDbContext dbContext, IHostEnvironment env)
+        public TenantMigrationService(
+            DriveDbContext dbContext, 
+            IHostEnvironment env, 
+            ILogger<TenantMigrationService> logger)
         {
             _dbContext = dbContext;
             _env = env;
+            _logger = logger;
         }
 
         public async Task MigrateTenantSchemaAsync(string schemaName)
         {
+            _logger.LogInformation("Starting migration process for tenant schema: {SchemaName}", schemaName);
+
             #pragma warning disable EF1002
             // 1. スキーマ自体がなければ作成
             await _dbContext.Database.ExecuteSqlRawAsync($"CREATE SCHEMA IF NOT EXISTS \"{schemaName}\";");
@@ -44,10 +52,13 @@ namespace DeleuzeDrive.Services
                 .ToListAsync();
             var appliedMigrations = appliedMigrationsRaw.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+            _logger.LogInformation("Already applied migrations for {SchemaName}: {Count} found.", schemaName, appliedMigrations.Count);
+
             // 4. DbMigration/ フォルダからすべての .sql ファイルを取得して名前順にソート
             var migrationDir = Path.Combine(_env.ContentRootPath, "DbMigration");
             if (!Directory.Exists(migrationDir))
             {
+                _logger.LogWarning("Migration directory not found at: {MigrationDir}", migrationDir);
                 return;
             }
 
@@ -56,13 +67,18 @@ namespace DeleuzeDrive.Services
                 .OrderBy(f => f, StringComparer.Ordinal)
                 .ToList();
 
+            _logger.LogInformation("Found {Count} migration script(s) in directory.", sqlFiles.Count);
+
             // 5. 未適用のSQLファイルを上から順に実行
             foreach (var fileName in sqlFiles)
             {
                 if (appliedMigrations.Contains(fileName))
                 {
+                    _logger.LogDebug("Skipping already applied migration: {MigrationName}", fileName);
                     continue;
                 }
+
+                _logger.LogInformation("Applying migration: {MigrationName} to schema {SchemaName}...", fileName, schemaName);
 
                 var filePath = Path.Combine(migrationDir, fileName);
                 var sql = await File.ReadAllTextAsync(filePath);
@@ -80,13 +96,17 @@ namespace DeleuzeDrive.Services
                         fileName);
 
                     await transaction.CommitAsync();
+                    _logger.LogInformation("Successfully applied and recorded migration: {MigrationName}", fileName);
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    _logger.LogError(ex, "Error occurred while applying migration {MigrationName} to schema {SchemaName}. Rolling back.", fileName, schemaName);
                     await transaction.RollbackAsync();
                     throw;
                 }
             }
+
+            _logger.LogInformation("Completed migration process for tenant schema: {SchemaName}", schemaName);
             #pragma warning restore EF1002
         }
     }
