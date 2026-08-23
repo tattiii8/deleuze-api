@@ -8,7 +8,7 @@ using DeleuzeMng.Models;
 namespace DeleuzeMng.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("")]
     public class TenantsController : ControllerBase
     {
         private readonly ITenantManagementService _tenantService;
@@ -53,14 +53,14 @@ namespace DeleuzeMng.Controllers
             return success ? Ok() : StatusCode(500, "サービスの有効化に失敗しました。");
         }
 
-        [HttpPost("{tenantId}/api-key")]
+        [HttpPost("{tenantId}/apikey")]
         public async Task<IActionResult> GenerateApiKey(string tenantId)
         {
             var apiKey = await _tenantService.GenerateApiKeyAsync(tenantId);
             return Ok(new { apiKey });
         }
 
-        [HttpPut("{tenantId}/auth-mode")]
+        [HttpPut("{tenantId}/authmode")]
         public async Task<IActionResult> UpdateAuthMode(string tenantId, [FromBody] UpdateAuthModeRequest request)
         {
             var success = await _tenantService.UpdateAuthModeAsync(tenantId, (int)request.AuthMode);
