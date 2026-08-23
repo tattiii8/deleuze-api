@@ -28,6 +28,9 @@ builder.Services.AddHttpContextAccessor();
 // ITenantProvider を JwtTenantProvider に登録
 builder.Services.AddScoped<ITenantProvider, JwtTenantProvider>();
 
+// SQLファイルベースのマルチテナントマイグレーションサービスの登録
+builder.Services.AddScoped<ITenantMigrationService, TenantMigrationService>();
+
 // AWS S3 サービスおよび IStorageService の登録
 builder.Services.AddAWSService<IAmazonS3>();
 builder.Services.AddScoped<IStorageService, S3StorageService>();
@@ -141,8 +144,6 @@ builder.Services.AddHealthChecks().AddDbContextCheck<DriveDbContext>("Database")
 var app = builder.Build();
 
 app.UseForwardedHeaders();
-
-// 💡 修正: 内部通信用ポート（5004）でのパスズレ（404）を防ぐため、固定の UsePathBase は除外
 
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
 {

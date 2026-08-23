@@ -1,0 +1,16 @@
+-- v1.0__initial.sql
+CREATE TABLE IF NOT EXISTS "Files" (
+    "Id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "FileName" VARCHAR(255) NOT NULL,
+    "ContentType" VARCHAR(100),
+    "ByteSize" BIGINT NOT NULL DEFAULT 0,
+    "StoragePath" TEXT NOT NULL,
+    "CreatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS "Folders" (
+    "Id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Name" VARCHAR(255) NOT NULL,
+    "ParentId" UUID REFERENCES "Folders"("Id") ON DELETE CASCADE,
+    "CreatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
