@@ -9,6 +9,7 @@ on:
       - 'deleuze-mng/**'
       - 'deleuze-drive/**'
       - '.github/workflows/**'
+  workflow_dispatch: # ★ これを追加することで「Run workflow」ボタンが表示されます
 
 env:
   AWS_REGION: ap-northeast-1
@@ -58,7 +59,7 @@ jobs:
       uses: aws-actions/amazon-ecr-login@v2
 
     - name: Build and Push deleuze-auth
-      if: ${{ needs.changes.outputs.auth == 'true' }}
+      if: ${{ needs.changes.outputs.auth == 'true' || github.event_name == 'workflow_dispatch' }}
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-auth
@@ -69,7 +70,7 @@ jobs:
           ${{ env.ECR_REGISTRY }}/deleuze-auth:${{ github.sha }}
 
     - name: Build and Push deleuze-app
-      if: ${{ needs.changes.outputs.app == 'true' }}
+      if: ${{ needs.changes.outputs.app == 'true' || github.event_name == 'workflow_dispatch' }}
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-app
@@ -80,7 +81,7 @@ jobs:
           ${{ env.ECR_REGISTRY }}/deleuze-app:${{ github.sha }}
 
     - name: Build and Push deleuze-mng
-      if: ${{ needs.changes.outputs.mng == 'true' }}
+      if: ${{ needs.changes.outputs.mng == 'true' || github.event_name == 'workflow_dispatch' }}
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-mng
@@ -91,7 +92,7 @@ jobs:
           ${{ env.ECR_REGISTRY }}/deleuze-mng:${{ github.sha }}
 
     - name: Build and Push deleuze-drive
-      if: ${{ needs.changes.outputs.drive == 'true' }}
+      if: ${{ needs.changes.outputs.drive == 'true' || github.event_name == 'workflow_dispatch' }}
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-drive
