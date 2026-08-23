@@ -8,6 +8,7 @@ using DeleuzeAuth.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// DbContext
 builder.Services.AddDbContext<AuthDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
@@ -16,6 +17,7 @@ builder.Services.AddScoped<IPasswordHasher, BCryptPasswordHasher>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<TokenGenerator>();
 
+// JWT 認証
 var jwtSecret = builder.Configuration["JWT_SECRET"] ?? "your-default-jwt-secret-key-at-least-32-bytes";
 var key = System.Text.Encoding.UTF8.GetBytes(jwtSecret);
 
@@ -71,33 +73,31 @@ builder.Services.AddHealthChecks().AddDbContextCheck<AuthDbContext>("Database");
 
 var app = builder.Build();
 
+// 1. リバースプロキシのヘッダー解析を最優先
 app.UseForwardedHeaders();
 
-// パスプレフィックスの剥離処理
-app.Use(async (context, next) =>
-{
-    if (context.Request.Path.StartsWithSegments("/api/auth", out var remainder))
-    {
-        context.Request.PathBase = "/api/auth";
-        context.Request.Path = remainder;
-    }
-    await next();
-});
+// 2. 組み込みの機能でパスのプレフィックスを剥離
+app.UsePathBase("/api/auth");
 
+// 3. Swagger のパスは相対パス
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        // ★ 修正: PathBase 適用後の相対エンドポイントに指定
         c.SwaggerEndpoint("v1/swagger.json", "deleuze-auth API v1");
         c.RoutePrefix = "swagger";
     });
 }
 
+// 4. ここでルーティングを確定させる (MapControllers などの前であること)
+app.UseRouting();
+
+// 5. 認証・認可
 app.UseAuthentication();
 app.UseAuthorization();
 
+// 6. エンドポイントのマッピング
 app.MapControllers();
 app.MapHealthChecks("/health");
 

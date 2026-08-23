@@ -69,19 +69,13 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 var app = builder.Build();
 
+// 1. リバースプロキシのヘッダー解析を最優先
 app.UseForwardedHeaders();
 
-// パスプレフィックス (/api/mng) の剥離ミドルウェア
-app.Use(async (context, next) =>
-{
-    if (context.Request.Path.StartsWithSegments("/api/mng", out var remainder))
-    {
-        context.Request.PathBase = "/api/mng";
-        context.Request.Path = remainder;
-    }
-    await next();
-});
+// 2. 組み込みの機能でパスのプレフィックスを剥離
+app.UsePathBase("/api/mng");
 
+// 3. Swagger のパスは相対パス
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
 {
     app.UseSwagger();
@@ -92,9 +86,14 @@ if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Ena
     });
 }
 
+// 4. ここでルーティングを確定させる (MapControllers などの前であること)
+app.UseRouting();
+
+// 5. 認証・認可
 app.UseAuthentication();
 app.UseAuthorization();
 
+// 6. エンドポイントのマッピング
 app.MapControllers();
 app.MapHealthChecks("/health");
 
