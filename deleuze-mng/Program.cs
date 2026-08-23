@@ -70,14 +70,23 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 var app = builder.Build();
 
 app.UseForwardedHeaders();
-app.UsePathBase("/api/mng");
+
+// パスプレフィックス (/api/mng) の剥離ミドルウェア
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api/mng", out var remainder))
+    {
+        context.Request.PathBase = "/api/mng";
+        context.Request.Path = remainder;
+    }
+    await next();
+});
 
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        // ★ 修正: "/api/mng/swagger/v1/swagger.json" から "v1/swagger.json" へ変更
         c.SwaggerEndpoint("v1/swagger.json", "deleuze-mng API v1");
         c.RoutePrefix = "swagger";
     });

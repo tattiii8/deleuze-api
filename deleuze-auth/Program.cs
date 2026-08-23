@@ -8,7 +8,6 @@ using DeleuzeAuth.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// DbContext
 builder.Services.AddDbContext<AuthDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
@@ -17,7 +16,6 @@ builder.Services.AddScoped<IPasswordHasher, BCryptPasswordHasher>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<TokenGenerator>();
 
-// JWT 認証
 var jwtSecret = builder.Configuration["JWT_SECRET"] ?? "your-default-jwt-secret-key-at-least-32-bytes";
 var key = System.Text.Encoding.UTF8.GetBytes(jwtSecret);
 
@@ -73,17 +71,26 @@ builder.Services.AddHealthChecks().AddDbContextCheck<AuthDbContext>("Database");
 
 var app = builder.Build();
 
-// ForwardedHeaders と UsePathBase を適用
 app.UseForwardedHeaders();
-app.UsePathBase("/api/auth");
+
+// パスプレフィックスの剥離処理
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api/auth", out var remainder))
+    {
+        context.Request.PathBase = "/api/auth";
+        context.Request.Path = remainder;
+    }
+    await next();
+});
 
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        // ★ 先頭から完全なパスを指定（deleuze-drive と完全同一）
-        c.SwaggerEndpoint("/api/auth/swagger/v1/swagger.json", "deleuze-auth API v1");
+        // ★ 修正: PathBase 適用後の相対エンドポイントに指定
+        c.SwaggerEndpoint("v1/swagger.json", "deleuze-auth API v1");
         c.RoutePrefix = "swagger";
     });
 }
