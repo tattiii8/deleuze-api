@@ -18,5 +18,10 @@ namespace DeleuzeMng.Services.Infrastructure
         /// 失敗時の補償処理：対象サービス API にテナント用環境の削除を要求する
         /// </summary>
         Task RollbackTenantAsync(string tenantId);
+
+        /// <summary>
+        /// 既存テナントのスキーマアップデート（マイグレーション）を要求する
+        /// </summary>
+        Task MigrateTenantAsync(string tenantId); // 👈 この定義を追加
     }
 }
