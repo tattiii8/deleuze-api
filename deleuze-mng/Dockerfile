@@ -1,14 +1,20 @@
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS build
-ARG TARGETARCH
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
-COPY ["deleuze-mng.csproj", "./"]
-RUN dotnet restore -a $TARGETARCH
-COPY . .
-RUN dotnet publish "deleuze-mng.csproj" -c Release -o /app/publish -a $TARGETARCH --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS final
+# 1. 共通プロジェクトと対象プロジェクトの csproj をコピーして restore
+COPY ["deleuze-shared/deleuze-shared.csproj", "deleuze-shared/"]
+COPY ["deleuze-drive/deleuze-drive.csproj", "deleuze-drive/"]
+RUN dotnet restore "deleuze-drive/deleuze-drive.csproj"
+
+# 2. 全ソースコードをコピーしてビルド
+COPY . .
+WORKDIR "/src/deleuze-drive"
+RUN dotnet build "deleuze-drive.csproj" -c Release -o /app/build
+
+FROM build AS publish
+RUN dotnet publish "deleuze-drive.csproj" -c Release -o /app/publish /p:UseAppHost=false
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
-COPY --from=build /app/publish .
-ENV ASPNETCORE_URLS=http://+:8080
-EXPOSE 8080
-ENTRYPOINT ["dotnet", "deleuze-mng.dll"]
+COPY --from=publish /app/publish .
+ENTRYPOINT ["dotnet", "deleuze-drive.dll"]

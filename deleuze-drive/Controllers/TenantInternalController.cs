@@ -15,15 +15,15 @@ namespace DeleuzeDrive.Controllers
     public class TenantInternalController : ControllerBase
     {
         private readonly DriveDbContext _dbContext;
-        private readonly IStorageService _storageService; // 👈 S3操作サービスの追加
+        private readonly IStorageService _storageService;
 
-        public TenantInternalController(DriveDbContext dbContext, IStorageService storageService) // 👈 DIでIStorageServiceを受け取る
+        public TenantInternalController(DriveDbContext dbContext, IStorageService storageService)
         {
             _dbContext = dbContext;
             _storageService = storageService;
         }
 
-        [HttpPost("{tenantId}/initialize")]
+        [HttpPost("{tenantId}")]
         public async Task<IActionResult> InitializeTenant(string tenantId)
         {
             // SQLインジェクション（パストラバーサル含む）を防ぐための入力検証
@@ -32,7 +32,8 @@ namespace DeleuzeDrive.Controllers
                 return BadRequest("無効なテナントID形式です。英数字、ハイフン、アンダースコアのみ使用できます。");
             }
 
-            string schemaName = $"app_{tenantId}";
+            // 新命名規則: {serviceKey}_{tenantId}
+            string schemaName = $"drive_{tenantId}";
 
             #pragma warning disable EF1002 // パラメータ化できないDDL識別子のため、事前サニタイズの上で警告を抑制
             await _dbContext.Database.ExecuteSqlRawAsync($"CREATE SCHEMA IF NOT EXISTS \"{schemaName}\";");
@@ -77,12 +78,12 @@ namespace DeleuzeDrive.Controllers
             }
             catch (Exception ex)
             {
-                // 必要に応じてログを出力
+                // 削除中の例外は記録して破棄・またはログ出力
                 return StatusCode(500, new { error = $"S3データの削除中にエラーが発生しました: {ex.Message}" });
             }
 
-            // 2. DBのアプリケーションスキーマを削除
-            string schemaName = $"app_{tenantId}";
+            // 2. DBのアプリケーションスキーマ (drive_{tenantId}) を削除
+            string schemaName = $"drive_{tenantId}";
 
             #pragma warning disable EF1002
             await _dbContext.Database.ExecuteSqlRawAsync($"DROP SCHEMA IF EXISTS \"{schemaName}\" CASCADE;");

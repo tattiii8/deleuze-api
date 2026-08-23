@@ -12,7 +12,10 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using DeleuzeDrive.Data;
 using DeleuzeDrive.Services;
-using DeleuzeDrive.Authentication; // ★ 追加
+using DeleuzeDrive.Authentication;
+// ★ deleuze-shared の共有ネームスペースを追加
+using Deleuze.Shared.Services;
+using Deleuze.Shared.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,7 +28,7 @@ builder.Services.AddDbContext<DriveDbContext>((sp, options) =>
 
 builder.Services.AddHttpContextAccessor();
 
-// ITenantProvider を JwtTenantProvider に登録
+// ★ deleuze-shared の JwtTenantProvider を ITenantProvider に登録
 builder.Services.AddScoped<ITenantProvider, JwtTenantProvider>();
 
 // AWS S3 サービスおよび IStorageService の登録
@@ -94,7 +97,6 @@ builder.Services.AddSwaggerGen(c =>
         Scheme = "Bearer"
     });
 
-    // ★ Swagger 用 ApiKey 定義の追加
     c.AddSecurityDefinition("ApiKey", new OpenApiSecurityScheme
     {
         Description = "deleuze-mng で発行された X-Api-Key を入力してください。",
@@ -138,7 +140,9 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.KnownProxies.Clear();
 });
 
-builder.Services.AddHealthChecks().AddDbContextCheck<DriveDbContext>("Database");
+// ★ deleuze-shared の DatabaseHealthCheck<DriveDbContext> を登録
+builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseHealthCheck<DriveDbContext>>("Database");
 
 var app = builder.Build();
 
