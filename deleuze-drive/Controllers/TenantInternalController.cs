@@ -16,17 +16,21 @@ namespace DeleuzeDrive.Controllers
     {
         private readonly DriveDbContext _dbContext;
         private readonly IStorageService _storageService;
+        private readonly ITenantMigrationService _migrationService; // 👈 追加
 
-        public TenantInternalController(DriveDbContext dbContext, IStorageService storageService)
+        public TenantInternalController(
+            DriveDbContext dbContext, 
+            IStorageService storageService,
+            ITenantMigrationService migrationService) // 👈 追加
         {
             _dbContext = dbContext;
             _storageService = storageService;
+            _migrationService = migrationService; // 👈 追加
         }
 
         [HttpPost("{tenantId}/initialize")]
         public async Task<IActionResult> InitializeTenant(string tenantId)
         {
-            // SQLインジェクション（パストラバーサル含む）を防ぐための入力検証
             if (string.IsNullOrWhiteSpace(tenantId) || !Regex.IsMatch(tenantId, @"^[a-zA-Z0-9_-]+$"))
             {
                 return BadRequest("無効なテナントID形式です。英数字、ハイフン、アンダースコアのみ使用できます。");
@@ -34,31 +38,16 @@ namespace DeleuzeDrive.Controllers
 
             string schemaName = $"app_{tenantId}";
 
-            #pragma warning disable EF1002 // パラメータ化できないDDL識別子のため、事前サニタイズの上で警告を抑制
-            await _dbContext.Database.ExecuteSqlRawAsync($"CREATE SCHEMA IF NOT EXISTS \"{schemaName}\";");
-
-            var createFilesSql = $@"
-                CREATE TABLE IF NOT EXISTS ""{schemaName}"".""Files"" (
-                    ""Id"" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    ""FileName"" VARCHAR(255) NOT NULL,
-                    ""ContentType"" VARCHAR(100),
-                    ""ByteSize"" BIGINT NOT NULL DEFAULT 0,
-                    ""StoragePath"" TEXT NOT NULL,
-                    ""CreatedAt"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                );";
-            await _dbContext.Database.ExecuteSqlRawAsync(createFilesSql);
-
-            var createFoldersSql = $@"
-                CREATE TABLE IF NOT EXISTS ""{schemaName}"".""Folders"" (
-                    ""Id"" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    ""Name"" VARCHAR(255) NOT NULL,
-                    ""ParentId"" UUID REFERENCES ""{schemaName}"".""Folders""(""Id"") ON DELETE CASCADE,
-                    ""CreatedAt"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                );";
-            await _dbContext.Database.ExecuteSqlRawAsync(createFoldersSql);
-            #pragma warning restore EF1002
-
-            return Ok(new { message = $"Drive schema '{schemaName}' initialized successfully." });
+            // 初回も共通のマイグレーションサービス（v1.0__initial.sqlを含む全適用）を呼ぶようにするとスッキリします
+            try
+            {
+                await _migrationService.MigrateTenantSchemaAsync(schemaName);
+                return Ok(new { message = $"Drive schema '{schemaName}' initialized and migrated successfully." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = $"テナント '{tenantId}' の初期化中にエラーが発生しました: {ex.Message}" });
+            }
         }
 
         [HttpPost("{tenantId}/migrate")]
@@ -74,7 +63,9 @@ namespace DeleuzeDrive.Controllers
 
             try
             {
-                // 既存テナントのスキーマに対するマイグレーションや追加のDDL適用をここに記述
+                // 👈 ここで正しく TenantMigrationService を呼び出す！
+                await _migrationService.MigrateTenantSchemaAsync(schemaName);
+
                 return Ok(new { message = $"Migration completed for tenant schema '{schemaName}' in drive." });
             }
             catch (Exception ex)
@@ -86,13 +77,11 @@ namespace DeleuzeDrive.Controllers
         [HttpDelete("{tenantId}")]
         public async Task<IActionResult> DeleteTenant(string tenantId)
         {
-            // SQLインジェクションを防ぐための入力検証
             if (string.IsNullOrWhiteSpace(tenantId) || !Regex.IsMatch(tenantId, @"^[a-zA-Z0-9_-]+$"))
             {
                 return BadRequest("無効なテナントID形式です。英数字、ハイフン、アンダースコアのみ使用できます。");
             }
 
-            // 1. S3 内の対象テナント用フォルダのファイルを一括削除
             try
             {
                 await _storageService.DeletePrefixAsync(tenantId);
@@ -102,7 +91,6 @@ namespace DeleuzeDrive.Controllers
                 return StatusCode(500, new { error = $"S3データの削除中にエラーが発生しました: {ex.Message}" });
             }
 
-            // 2. DBのアプリケーションスキーマを削除
             string schemaName = $"app_{tenantId}";
 
             #pragma warning disable EF1002
