@@ -141,14 +141,15 @@ builder.Services.AddHealthChecks().AddDbContextCheck<DriveDbContext>("Database")
 var app = builder.Build();
 
 app.UseForwardedHeaders();
-app.UsePathBase("/api/drive");
+
+// 💡 修正: 内部通信用ポート（5004）でのパスズレ（404）を防ぐため、固定の UsePathBase は除外
 
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        c.SwaggerEndpoint("/api/drive/swagger/v1/swagger.json", "deleuze-drive API v1");
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "deleuze-drive API v1");
         c.RoutePrefix = "swagger";
     });
 }
