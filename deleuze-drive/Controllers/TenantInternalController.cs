@@ -117,7 +117,7 @@ namespace DeleuzeDrive.Controllers
             try
             {
                 var schemaExists = await _dbContext.Database
-                    .SqlQueryRaw<int>($"SELECT COUNT(1) FROM information_schema.schemata WHERE schema_name = @p0;", schemaName)
+                    .SqlQueryRaw<int>($"SELECT COUNT(1) FROM information_schema.schemata WHERE schema_name = @p0", schemaName)
                     .FirstOrDefaultAsync();
 
                 dbStatus = schemaExists > 0 ? "Healthy (Schema Exists)" : "Degraded (Schema Missing)";
