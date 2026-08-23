@@ -8,7 +8,7 @@ using DeleuzeMng.Models;
 namespace DeleuzeMng.Controllers
 {
     [ApiController]
-    [Route("")]
+    [Route("tenants")]
     public class TenantsController : ControllerBase
     {
         private readonly ITenantManagementService _tenantService;

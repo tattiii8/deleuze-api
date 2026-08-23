@@ -6,7 +6,7 @@ using DeleuzeMng.Services;
 namespace DeleuzeMng.Controllers
 {
     [ApiController]
-    [Route("")]
+    [Route("users")]
     public class UsersController : ControllerBase
     {
         private readonly ITenantManagementService _tenantService;
