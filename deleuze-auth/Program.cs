@@ -76,18 +76,19 @@ var app = builder.Build();
 app.UseForwardedHeaders();
 app.UsePathBase("/api/auth");
 
-// ★ if文を外し、強制的にSwaggerをマウントして検証する
-app.UseSwagger();
-app.UseSwaggerUI(c =>
+if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
 {
-    // ★ deleuze-drive に倣い、絶対パスをハードコード
-    c.SwaggerEndpoint("/api/auth/swagger/v1/swagger.json", "deleuze-auth API v1");
-    c.RoutePrefix = "swagger";
-});
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/api/auth/swagger/v1/swagger.json", "deleuze-auth API v1");
+        c.RoutePrefix = "swagger";
+    });
+}
 
-// app.UseRouting() は書かなくてOK (MapControllersが自動処理します)
 app.UseAuthentication();
 app.UseAuthorization();
+
 app.MapControllers();
 app.MapHealthChecks("/health");
 
