@@ -29,23 +29,7 @@ namespace DeleuzeMng.Services
 
         public async Task<IEnumerable<TenantInfo>> GetTenantsAsync()
         {
-            await using var appConn = new NpgsqlConnection(_appConnString);
-            await appConn.OpenAsync();
-
-            const string schemaSql = @"
-                SELECT schema_name 
-                FROM information_schema.schemata
-                WHERE schema_name LIKE 'app_%'
-                ORDER BY schema_name;";
-
-            var schemas = (await appConn.QueryAsync<string>(schemaSql)).ToList();
-
-            var baseTenants = schemas
-                .Select(s => s.Replace("app_", ""))
-                .Where(t => !t.Contains('_'))
-                .Distinct()
-                .ToList();
-
+            // 1. Auth DB から登録済みテナントを唯一の正として取得
             await using var authConn = new NpgsqlConnection(_authConnString);
             await authConn.OpenAsync();
 
@@ -53,13 +37,30 @@ namespace DeleuzeMng.Services
                 SELECT ""Id"", ""AuthMode"", ""ApiKey"" 
                 FROM public.""Tenants"";";
 
-            var authTenants = (await authConn.QueryAsync<TenantAuthDto>(tenantAuthSql))
-                .ToDictionary(t => t.Id, t => t, StringComparer.OrdinalIgnoreCase);
+            var authTenants = (await authConn.QueryAsync<TenantAuthDto>(tenantAuthSql)).ToList();
+
+            if (!authTenants.Any())
+            {
+                return Enumerable.Empty<TenantInfo>();
+            }
+
+            // 2. App DB から全スキーマを取得（各サービス有効化の判定用）
+            await using var appConn = new NpgsqlConnection(_appConnString);
+            await appConn.OpenAsync();
+
+            const string schemaSql = @"
+                SELECT schema_name 
+                FROM information_schema.schemata
+                WHERE schema_name LIKE 'app_%';";
+
+            var schemas = (await appConn.QueryAsync<string>(schemaSql)).ToList();
 
             var result = new List<TenantInfo>();
 
-            foreach (var tenantId in baseTenants)
+            // 3. Auth DB に実在するテナントのみを基点に情報を構築
+            foreach (var authDto in authTenants)
             {
+                var tenantId = authDto.Id;
                 var services = new List<string>();
 
                 foreach (var serviceKey in _serviceClients.Keys)
@@ -76,16 +77,7 @@ namespace DeleuzeMng.Services
                     }
                 }
 
-                int authMode = 0;
-                string? apiKey = null;
-
-                if (authTenants.TryGetValue(tenantId, out var authDto))
-                {
-                    authMode = authDto.AuthMode;
-                    apiKey = authDto.ApiKey;
-                }
-
-                result.Add(new TenantInfo(tenantId, services, authMode, apiKey));
+                result.Add(new TenantInfo(tenantId, services, authDto.AuthMode, authDto.ApiKey));
             }
 
             return result;
@@ -95,17 +87,7 @@ namespace DeleuzeMng.Services
         {
             if (string.IsNullOrWhiteSpace(tenantId)) return null;
 
-            await using var appConn = new NpgsqlConnection(_appConnString);
-            await appConn.OpenAsync();
-
-            const string schemaSql = @"
-                SELECT schema_name 
-                FROM information_schema.schemata
-                WHERE schema_name LIKE 'app_' || @TenantId || '%'
-                   OR schema_name = 'app_' || @TenantId;";
-
-            var schemas = (await appConn.QueryAsync<string>(schemaSql, new { TenantId = tenantId })).ToList();
-
+            // 1. Auth DB から対象テナントを取得
             await using var authConn = new NpgsqlConnection(_authConnString);
             await authConn.OpenAsync();
 
@@ -116,10 +98,22 @@ namespace DeleuzeMng.Services
 
             var authDto = await authConn.QueryFirstOrDefaultAsync<TenantAuthDto>(tenantAuthSql, new { TenantId = tenantId });
 
-            if (!schemas.Any() && authDto == null)
+            if (authDto == null)
             {
                 return null;
             }
+
+            // 2. App DB から関連スキーマを取得
+            await using var appConn = new NpgsqlConnection(_appConnString);
+            await appConn.OpenAsync();
+
+            const string schemaSql = @"
+                SELECT schema_name 
+                FROM information_schema.schemata
+                WHERE schema_name LIKE 'app_' || @TenantId || '%'
+                   OR schema_name = 'app_' || @TenantId;";
+
+            var schemas = (await appConn.QueryAsync<string>(schemaSql, new { TenantId = tenantId })).ToList();
 
             var services = new List<string>();
             foreach (var serviceKey in _serviceClients.Keys)
@@ -136,14 +130,12 @@ namespace DeleuzeMng.Services
                 }
             }
 
-            int authMode = authDto?.AuthMode ?? 0;
-            string? apiKey = authDto?.ApiKey;
-
-            return new TenantInfo(tenantId, services, authMode, apiKey);
+            return new TenantInfo(tenantId, services, authDto.AuthMode, authDto.ApiKey);
         }
 
         public async Task<bool> CreateTenantAsync(string tenantId, string name = "")
         {
+            // 1. App DB に基本スキーマを作成
             await using var appConn = new NpgsqlConnection(_appConnString);
             await appConn.OpenAsync();
 
@@ -151,6 +143,7 @@ namespace DeleuzeMng.Services
             string createSchemaSql = $"CREATE SCHEMA IF NOT EXISTS \"{schemaName}\";";
             await appConn.ExecuteAsync(createSchemaSql);
 
+            // 2. Auth DB にテナント情報を登録
             await using var authConn = new NpgsqlConnection(_authConnString);
             await authConn.OpenAsync();
 
@@ -170,7 +163,7 @@ namespace DeleuzeMng.Services
         {
             if (string.IsNullOrWhiteSpace(tenantId)) return false;
 
-            // 1. deleuze-drive 等の各内部 DELETE API をコールして S3・DBスキーマを削除
+            // 1. 各マイクロサービス（deleuze-drive等）の削除 API を呼んで S3 / サービススキーマをクリーンアップ
             foreach (var disableFunc in _disableServiceClients.Values)
             {
                 try
@@ -179,11 +172,18 @@ namespace DeleuzeMng.Services
                 }
                 catch
                 {
-                    // 未接続・削除済みの場合の例外は吸収
+                    // 既に削除済み・未接続時の例外は吸収
                 }
             }
 
-            // 2. Auth DB からテナント情報を削除
+            // 2. deleuze-mng が作成した親スキーマ (app_{tenantId}) を App DB から完全破棄
+            await using var appConn = new NpgsqlConnection(_appConnString);
+            await appConn.OpenAsync();
+
+            string dropSchemaSql = $"DROP SCHEMA IF EXISTS \"app_{tenantId}\" CASCADE;";
+            await appConn.ExecuteAsync(dropSchemaSql);
+
+            // 3. Auth DB からテナントレコードを削除
             await using var authConn = new NpgsqlConnection(_authConnString);
             await authConn.OpenAsync();
 
@@ -210,7 +210,6 @@ namespace DeleuzeMng.Services
                 return false;
             }
 
-            // Client 経由で deleuze-drive の DELETE API を呼び出す
             if (_disableServiceClients.TryGetValue(serviceKey, out var disableFunc))
             {
                 return await disableFunc(tenantId);
