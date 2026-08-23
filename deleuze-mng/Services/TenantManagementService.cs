@@ -256,7 +256,7 @@ namespace DeleuzeMng.Services
             await conn.OpenAsync();
 
             const string sql = @"
-                SELECT ""Id"", ""LoginId"" AS ""LoginId"", ""TenantId"", ""CreatedAt""
+                SELECT ""Id"", ""LoginId"", ""TenantId"", ""CreatedAt""
                 FROM public.""Users"";";
 
             var users = await conn.QueryAsync<UserDto>(sql);
@@ -273,12 +273,12 @@ namespace DeleuzeMng.Services
             await using var conn = new NpgsqlConnection(_authConnString);
             await conn.OpenAsync();
 
+            // 💡 Id カラム（integer / serial）は自動採番のため INSERT 対象から除外
             const string sql = @"
-                INSERT INTO public.""Users"" (""Id"", ""LoginId"", ""PasswordHash"", ""TenantId"", ""CreatedAt"")
-                VALUES (@Id, @LoginId, @Password, @TenantId, NOW());";
+                INSERT INTO public.""Users"" (""LoginId"", ""PasswordHash"", ""TenantId"", ""CreatedAt"")
+                VALUES (@LoginId, @Password, @TenantId, NOW());";
 
             var rows = await conn.ExecuteAsync(sql, new {
-                Id = Guid.NewGuid(),
                 LoginId = loginId,
                 Password = password,
                 TenantId = tenantId
@@ -292,10 +292,11 @@ namespace DeleuzeMng.Services
             await using var conn = new NpgsqlConnection(_authConnString);
             await conn.OpenAsync();
 
-            if (!Guid.TryParse(userId, out var userGuid)) return false;
+            // 💡 integer 型として数値変換
+            if (!int.TryParse(userId, out var userIntId)) return false;
 
             const string sql = @"DELETE FROM public.""Users"" WHERE ""Id"" = @Id;";
-            var rows = await conn.ExecuteAsync(sql, new { Id = userGuid });
+            var rows = await conn.ExecuteAsync(sql, new { Id = userIntId });
 
             return rows > 0;
         }
@@ -309,7 +310,7 @@ namespace DeleuzeMng.Services
 
         private class UserDto
         {
-            public Guid Id { get; set; }
+            public int Id { get; set; }
             public string? LoginId { get; set; }
             public string? TenantId { get; set; }
             public DateTime CreatedAt { get; set; }
