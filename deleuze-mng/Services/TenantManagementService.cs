@@ -256,7 +256,7 @@ namespace DeleuzeMng.Services
             await conn.OpenAsync();
 
             const string sql = @"
-                SELECT ""Id"", ""UserName"" AS ""LoginId"", ""TenantId"", ""CreatedAt""
+                SELECT ""Id"", ""LoginId"" AS ""LoginId"", ""TenantId"", ""CreatedAt""
                 FROM public.""Users"";";
 
             var users = await conn.QueryAsync<UserDto>(sql);
@@ -274,7 +274,7 @@ namespace DeleuzeMng.Services
             await conn.OpenAsync();
 
             const string sql = @"
-                INSERT INTO public.""Users"" (""Id"", ""UserName"", ""PasswordHash"", ""TenantId"", ""CreatedAt"")
+                INSERT INTO public.""Users"" (""Id"", ""LoginId"", ""PasswordHash"", ""TenantId"", ""CreatedAt"")
                 VALUES (@Id, @LoginId, @Password, @TenantId, NOW());";
 
             var rows = await conn.ExecuteAsync(sql, new {
