@@ -4,11 +4,13 @@ on:
   push:
     branches: [ main ]
     paths:
+      - 'deleuze-shared/**'
       - 'deleuze-auth/**'
       - 'deleuze-app/**'
       - 'deleuze-mng/**'
       - 'deleuze-drive/**'
       - '.github/workflows/**'
+  workflow_dispatch: # ★ 追加: GitHub UIからの手動実行を許可
 
 env:
   AWS_REGION: ap-northeast-1
@@ -18,20 +20,22 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      auth:  ${{ steps.filter.outputs.auth }}
-      app:   ${{ steps.filter.outputs.app }}
-      mng:   ${{ steps.filter.outputs.mng }}
-      drive: ${{ steps.filter.outputs.drive }}
+      shared: ${{ steps.filter.outputs.shared }}
+      auth:   ${{ steps.filter.outputs.auth }}
+      app:    ${{ steps.filter.outputs.app }}
+      mng:    ${{ steps.filter.outputs.mng }}
+      drive:  ${{ steps.filter.outputs.drive }}
     steps:
     - uses: actions/checkout@v4
     - uses: dorny/paths-filter@v3
       id: filter
       with:
         filters: |
-          auth:  ['deleuze-auth/**']
-          app:   ['deleuze-app/**']
-          mng:   ['deleuze-mng/**']
-          drive: ['deleuze-drive/**']
+          shared: ['deleuze-shared/**']
+          auth:   ['deleuze-auth/**']
+          app:    ['deleuze-app/**']
+          mng:    ['deleuze-mng/**']
+          drive:  ['deleuze-drive/**']
 
   build-and-push:
     needs: changes
@@ -57,11 +61,13 @@ jobs:
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
 
+    # ★ 手動実行（workflow_dispatch）時、または対象サービス/shared に変更があった場合にビルド＆プッシュ
     - name: Build and Push deleuze-auth
-      if: ${{ needs.changes.outputs.auth == 'true' }}
+      if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.auth == 'true' || needs.changes.outputs.shared == 'true' }}
       uses: docker/build-push-action@v5
       with:
-        context: ./deleuze-auth
+        context: .
+        file: ./deleuze-auth/Dockerfile
         platforms: linux/amd64
         push: true
         tags: |
@@ -69,10 +75,11 @@ jobs:
           ${{ env.ECR_REGISTRY }}/deleuze-auth:${{ github.sha }}
 
     - name: Build and Push deleuze-app
-      if: ${{ needs.changes.outputs.app == 'true' }}
+      if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.app == 'true' || needs.changes.outputs.shared == 'true' }}
       uses: docker/build-push-action@v5
       with:
-        context: ./deleuze-app
+        context: .
+        file: ./deleuze-app/Dockerfile
         platforms: linux/amd64
         push: true
         tags: |
@@ -80,10 +87,11 @@ jobs:
           ${{ env.ECR_REGISTRY }}/deleuze-app:${{ github.sha }}
 
     - name: Build and Push deleuze-mng
-      if: ${{ needs.changes.outputs.mng == 'true' }}
+      if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.mng == 'true' || needs.changes.outputs.shared == 'true' }}
       uses: docker/build-push-action@v5
       with:
-        context: ./deleuze-mng
+        context: .
+        file: ./deleuze-mng/Dockerfile
         platforms: linux/amd64
         push: true
         tags: |
@@ -91,10 +99,11 @@ jobs:
           ${{ env.ECR_REGISTRY }}/deleuze-mng:${{ github.sha }}
 
     - name: Build and Push deleuze-drive
-      if: ${{ needs.changes.outputs.drive == 'true' }}
+      if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.drive == 'true' || needs.changes.outputs.shared == 'true' }}
       uses: docker/build-push-action@v5
       with:
-        context: ./deleuze-drive
+        context: .
+        file: ./deleuze-drive/Dockerfile
         platforms: linux/amd64
         push: true
         tags: |
