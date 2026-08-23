@@ -37,11 +37,13 @@ if (enableMngAuth && string.IsNullOrEmpty(apiSecret))
 
 // 💡 マイクロサービス連携用 Client の DI 登録
 builder.Services.AddHttpClient<IServiceProvisioningClient, DriveProvisioningClient>();
+builder.Services.AddHttpClient<DriveProvisioningClient>(); // 👈 追加: 個別インジェクション用
 
 // 💡 Service クライアント辞書の準備と TenantManagementService の DI 登録
 builder.Services.AddScoped<ITenantManagementService>(sp =>
 {
     var client = sp.GetRequiredService<IServiceProvisioningClient>();
+    var driveClient = sp.GetRequiredService<DriveProvisioningClient>(); // 👈 追加: 履歴・ヘルスチェック用クライアントを取得
 
     // 💡 有効化（プロビジョニング）用クライアント辞書
     var serviceClients = new Dictionary<string, Func<string, Task<bool>>>
@@ -63,13 +65,11 @@ builder.Services.AddScoped<ITenantManagementService>(sp =>
         }
     };
 
-    // 💡 👈 追加: マイグレーション（既存テナントのスキーマアップデート）用クライアント辞書
+    // 💡 マイグレーション用クライアント辞書
     var migrateServiceClients = new Dictionary<string, Func<string, Task<bool>>>
     {
         [client.ServiceKey] = async (tenantId) =>
         {
-            // DriveProvisioningClient（または対応するクライアント）側に MigrateAsync がある想定、
-            // もしくは共通基盤経由でマイグレーション用メソッドを呼び出します
             await client.MigrateTenantAsync(tenantId);
             return true;
         }
@@ -80,7 +80,8 @@ builder.Services.AddScoped<ITenantManagementService>(sp =>
         authConnectionString, 
         serviceClients, 
         disableServiceClients,
-        migrateServiceClients // 👈 追加した辞書をコンストラクターに渡す
+        migrateServiceClients,
+        driveClient // 👈 正しく DriveProvisioningClient を渡す
     );
 });
 
