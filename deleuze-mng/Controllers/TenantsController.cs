@@ -77,7 +77,7 @@ namespace DeleuzeMng.Controllers
             return success ? Ok() : StatusCode(500, "サービスの無効化に失敗しました。");
         }
 
-        // 👈 追加: 指定テナントの全サービススキーマに対してマイグレーションを実行するエンドポイント
+        // 指定テナントの全サービススキーマに対してマイグレーションを実行
         [HttpPost("{tenantId}/migrate")]
         public async Task<IActionResult> MigrateTenant(string tenantId)
         {
@@ -94,6 +94,59 @@ namespace DeleuzeMng.Controllers
             }
 
             return Ok(new { message = $"Tenant '{tenantId}' migrated successfully across all services." });
+        }
+
+        // 💡 追加: マイグレーション履歴を取得するエンドポイント
+        [HttpGet("{tenantId}/migrations")]
+        public async Task<IActionResult> GetMigrations(string tenantId)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId))
+            {
+                return BadRequest("テナントIDが無効です。");
+            }
+
+            try
+            {
+                var history = await _tenantService.GetTenantMigrationsAsync(tenantId);
+                return Ok(history);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = $"マイグレーション履歴の取得に失敗しました: {ex.Message}" });
+            }
+        }
+
+        // 💡 追加: ヘルスチェックを実行するエンドポイント
+        [HttpGet("{tenantId}/health")]
+        public async Task<IActionResult> CheckHealth(string tenantId)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId))
+            {
+                return BadRequest("テナントIDが無効です。");
+            }
+
+            try
+            {
+                var health = await _tenantService.CheckTenantHealthAsync(tenantId);
+                return Ok(health);
+            }
+            catch (Exception ex)
+            {
+                return Ok(new { dbStatus = "Unreachable", storageStatus = "Unreachable", message = ex.Message });
+            }
+        }
+
+        // 💡 追加: テナントのステータス変更（一時停止 / 有効化）
+        [HttpPatch("{tenantId}/status")]
+        public async Task<IActionResult> UpdateStatus(string tenantId, [FromBody] UpdateStatusRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId) || request == null)
+            {
+                return BadRequest("リクエストが無効です。");
+            }
+
+            var success = await _tenantService.UpdateTenantStatusAsync(tenantId, request.Status);
+            return success ? Ok(new { message = $"テナント '{tenantId}' のステータスを更新しました。" }) : StatusCode(500, "ステータスの更新に失敗しました。");
         }
 
         [HttpPost("{tenantId}/apikey")]
@@ -116,5 +169,11 @@ namespace DeleuzeMng.Controllers
             var success = await _tenantService.DeleteTenantAsync(tenantId);
             return success ? Ok() : NotFound("該当するテナントが見つかりません。");
         }
+    }
+
+    // 追加のリクエストDTO等
+    public class UpdateStatusRequest
+    {
+        public string Status { get; set; } = "active";
     }
 }

@@ -6,6 +6,10 @@ namespace DeleuzeMng.Services
     public record TenantInfo(string TenantId, List<string> Services, int AuthMode = 0, string? ApiKey = null);
     public record UserInfo(string Id, string LoginId, string TenantId, string CreatedAt);
 
+    // 💡 コントローラーで利用する DTO の定義（必要に応じて別ファイルでも可）
+    public record MigrationHistoryDto(string MigrationName, string AppliedAt);
+    public record HealthCheckResultDto(string DbStatus, string StorageStatus, string Message);
+
     public interface ITenantManagementService
     {
         Task<IEnumerable<TenantInfo>> GetTenantsAsync();
@@ -17,8 +21,17 @@ namespace DeleuzeMng.Services
         Task<bool> EnableServiceForTenantAsync(string tenantId, string serviceKey);
         Task<bool> DisableServiceForTenantAsync(string tenantId, string serviceKey);
 
-        // 👈 追加: 全サービスに対するマイグレーション実行メソッドの定義
+        // 全サービスに対するマイグレーション実行
         Task<bool> MigrateAllServicesForTenantAsync(string tenantId);
+
+        // 💡 追加: マイグレーション履歴の取得
+        Task<IEnumerable<MigrationHistoryDto>> GetTenantMigrationsAsync(string tenantId);
+
+        // 💡 追加: 接続ヘルスチェックの実行
+        Task<HealthCheckResultDto> CheckTenantHealthAsync(string tenantId);
+
+        // 💡 追加: テナントのステータス変更 (一時停止/有効化)
+        Task<bool> UpdateTenantStatusAsync(string tenantId, string status);
 
         Task<string> GenerateApiKeyAsync(string tenantId);
         Task<bool> UpdateAuthModeAsync(string tenantId, int authMode);
