@@ -9,6 +9,9 @@ namespace DeleuzeMng.Services
     public interface ITenantManagementService
     {
         Task<IEnumerable<TenantInfo>> GetTenantsAsync();
+　　　　　
+　　　　　Task<TenantInfo?> GetTenantByIdAsync(string tenantId);
+        
         Task<bool> CreateTenantAsync(string tenantId, string name = "");
         Task<bool> DeleteTenantAsync(string tenantId);
         Task<bool> EnableServiceForTenantAsync(string tenantId, string serviceKey);

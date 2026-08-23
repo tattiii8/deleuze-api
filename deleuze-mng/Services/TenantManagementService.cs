@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Dapper;
 using Npgsql;
+using DeleuzeMng.Models;
 
 namespace DeleuzeMng.Services
 {
@@ -79,6 +80,51 @@ namespace DeleuzeMng.Services
             }
 
             return result;
+        }
+
+        public async Task<TenantInfo?> GetTenantByIdAsync(string tenantId)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId)) return null;
+
+            await using var appConn = new NpgsqlConnection(_appConnString);
+            await appConn.OpenAsync();
+
+            const string schemaSql = @"
+                SELECT schema_name 
+                FROM information_schema.schemata
+                WHERE schema_name LIKE 'app_' || @TenantId || '%'
+                   OR schema_name = 'app_' || @TenantId;";
+
+            var schemas = (await appConn.QueryAsync<string>(schemaSql, new { TenantId = tenantId })).ToList();
+
+            await using var authConn = new NpgsqlConnection(_authConnString);
+            await authConn.OpenAsync();
+
+            const string tenantAuthSql = @"
+                SELECT ""Id"", ""AuthMode"", ""ApiKey"" 
+                FROM public.""Tenants""
+                WHERE ""Id"" = @TenantId;";
+
+            var authDto = await authConn.QueryFirstOrDefaultAsync<TenantAuthDto>(tenantAuthSql, new { TenantId = tenantId });
+
+            if (!schemas.Any() && authDto == null)
+            {
+                return null;
+            }
+
+            var services = new List<string>();
+            foreach (var serviceKey in _serviceClients.Keys)
+            {
+                if (schemas.Contains($"app_{tenantId}_{serviceKey}"))
+                {
+                    services.Add(serviceKey);
+                }
+            }
+
+            int authMode = authDto?.AuthMode ?? 0;
+            string? apiKey = authDto?.ApiKey;
+
+            return new TenantInfo(tenantId, services, authMode, apiKey);
         }
 
         public async Task<bool> CreateTenantAsync(string tenantId, string name = "")

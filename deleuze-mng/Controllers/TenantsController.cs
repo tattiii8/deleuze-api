@@ -25,6 +25,20 @@ namespace DeleuzeMng.Controllers
             return Ok(tenants);
         }
 
+        [HttpGet("{tenantId}")]
+        public async Task<IActionResult> GetTenantById(string tenantId)
+        {
+            var tenant = await _tenantService.GetTenantByIdAsync(tenantId);
+
+            // 💡 .HasValue ではなく is null で判定
+            if (tenant is null)
+            {
+                return NotFound("該当するテナントが見つかりません。");
+            }
+
+            return Ok(tenant);
+        }
+
         [HttpPost]
         public async Task<IActionResult> CreateTenant([FromBody] CreateTenantRequest request)
         {
