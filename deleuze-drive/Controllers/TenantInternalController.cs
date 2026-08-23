@@ -1,115 +1,154 @@
 using System;
-using System.Text.RegularExpressions;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
+using Amazon.S3;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
 using DeleuzeDrive.Data;
 using DeleuzeDrive.Services;
+using DeleuzeDrive.Authentication;
 
-namespace DeleuzeDrive.Controllers
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddDbContext<DriveDbContext>((sp, options) =>
 {
-    [ApiController]
-    [AllowAnonymous] // 内部管理APIはアクセストークン不要
-    [Route("api/drive/internal/tenants")] // 👈 プレフィックスに合わせて修正
-    public class TenantInternalController : ControllerBase
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
+    options.ReplaceService<IModelCacheKeyFactory, TenantModelCacheKeyFactory>();
+});
+
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ITenantProvider, JwtTenantProvider>();
+
+builder.Services.AddAWSService<IAmazonS3>();
+builder.Services.AddScoped<IStorageService, S3StorageService>();
+
+var authAuthority = builder.Configuration["AUTH_INTERNAL_URL"] 
+    ?? "http://192.168.8.112:5001/api/auth";
+
+builder.Services.AddHttpClient("AuthService", client =>
+{
+    var baseUrl = authAuthority.EndsWith("/") ? authAuthority : authAuthority + "/";
+    client.BaseAddress = new Uri(baseUrl);
+});
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultScheme = "SmartAuth";
+    options.DefaultChallengeScheme = "SmartAuth";
+})
+.AddPolicyScheme("SmartAuth", "JWT or ApiKey", options =>
+{
+    options.ForwardDefaultSelector = context =>
     {
-        private readonly DriveDbContext _dbContext;
-        private readonly IStorageService _storageService;
-
-        public TenantInternalController(DriveDbContext dbContext, IStorageService storageService)
+        if (context.Request.Headers.ContainsKey("X-Api-Key"))
         {
-            _dbContext = dbContext;
-            _storageService = storageService;
+            return ApiKeyAuthenticationOptions.DefaultScheme;
         }
+        return JwtBearerDefaults.AuthenticationScheme;
+    };
+})
+.AddScheme<ApiKeyAuthenticationOptions, ApiKeyAuthenticationHandler>(
+    ApiKeyAuthenticationOptions.DefaultScheme, _ => { })
+.AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
+{
+    options.Authority = authAuthority;
+    options.RequireHttpsMetadata = false;
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = false,
+        ValidateAudience = false,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ClockSkew = TimeSpan.Zero
+    };
+});
 
-        [HttpPost("{tenantId}/initialize")]
-        public async Task<IActionResult> InitializeTenant(string tenantId)
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "deleuze-drive API", Version = "v1" });
+
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "deleuze-auth でログイン時に取得した JWT アクセストークンを入力してください。",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.Http,
+        Scheme = "Bearer"
+    });
+
+    c.AddSecurityDefinition("ApiKey", new OpenApiSecurityScheme
+    {
+        Description = "deleuze-mng で発行された X-Api-Key を入力してください。",
+        Name = "X-Api-Key",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey
+    });
+
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
         {
-            // SQLインジェクション（パストラバーサル含む）を防ぐための入力検証
-            if (string.IsNullOrWhiteSpace(tenantId) || !Regex.IsMatch(tenantId, @"^[a-zA-Z0-9_-]+$"))
+            new OpenApiSecurityScheme
             {
-                return BadRequest("無効なテナントID形式です。英数字、ハイフン、アンダースコアのみ使用できます。");
-            }
-
-            string schemaName = $"app_{tenantId}";
-
-            #pragma warning disable EF1002 // パラメータ化できないDDL識別子のため、事前サニタイズの上で警告を抑制
-            await _dbContext.Database.ExecuteSqlRawAsync($"CREATE SCHEMA IF NOT EXISTS \"{schemaName}\";");
-
-            var createFilesSql = $@"
-                CREATE TABLE IF NOT EXISTS ""{schemaName}"".""Files"" (
-                    ""Id"" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    ""FileName"" VARCHAR(255) NOT NULL,
-                    ""ContentType"" VARCHAR(100),
-                    ""ByteSize"" BIGINT NOT NULL DEFAULT 0,
-                    ""StoragePath"" TEXT NOT NULL,
-                    ""CreatedAt"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                );";
-            await _dbContext.Database.ExecuteSqlRawAsync(createFilesSql);
-
-            var createFoldersSql = $@"
-                CREATE TABLE IF NOT EXISTS ""{schemaName}"".""Folders"" (
-                    ""Id"" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    ""Name"" VARCHAR(255) NOT NULL,
-                    ""ParentId"" UUID REFERENCES ""{schemaName}"".""Folders""(""Id"") ON DELETE CASCADE,
-                    ""CreatedAt"" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                );";
-            await _dbContext.Database.ExecuteSqlRawAsync(createFoldersSql);
-            #pragma warning restore EF1002
-
-            return Ok(new { message = $"Drive schema '{schemaName}' initialized successfully." });
-        }
-
-        [HttpPost("{tenantId}/migrate")]
-        public async Task<IActionResult> MigrateTenant(string tenantId)
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        },
         {
-            // SQLインジェクションを防ぐための入力検証
-            if (string.IsNullOrWhiteSpace(tenantId) || !Regex.IsMatch(tenantId, @"^[a-zA-Z0-9_-]+$"))
+            new OpenApiSecurityScheme
             {
-                return BadRequest("無効なテナントID形式です。英数字、ハイフン、アンダースコアのみ使用できます。");
-            }
-
-            string schemaName = $"app_{tenantId}";
-
-            try
-            {
-                // 既存テナントのスキーマに対して最新のマイグレーションや追加のDDL適用を行う
-                return Ok(new { message = $"Migration completed for tenant schema '{schemaName}' in drive." });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { error = $"テナント '{tenantId}' のマイグレーション中にエラーが発生しました: {ex.Message}" });
-            }
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "ApiKey"
+                }
+            },
+            Array.Empty<string>()
         }
+    });
+});
 
-        [HttpDelete("{tenantId}")]
-        public async Task<IActionResult> DeleteTenant(string tenantId)
-        {
-            // SQLインジェクションを防ぐための入力検証
-            if (string.IsNullOrWhiteSpace(tenantId) || !Regex.IsMatch(tenantId, @"^[a-zA-Z0-9_-]+$"))
-            {
-                return BadRequest("無効なテナントID形式です。英数字、ハイフン、アンダースコアのみ使用できます。");
-            }
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedPrefix;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
-            // 1. S3 内の対象テナント用フォルダ（{tenantId}/...）のファイルを一括削除
-            try
-            {
-                await _storageService.DeletePrefixAsync(tenantId);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { error = $"S3データの削除中にエラーが発生しました: {ex.Message}" });
-            }
+builder.Services.AddHealthChecks().AddDbContextCheck<DriveDbContext>("Database");
 
-            // 2. DBのアプリケーションスキーマを削除
-            string schemaName = $"app_{tenantId}";
+var app = builder.Build();
 
-            #pragma warning disable EF1002
-            await _dbContext.Database.ExecuteSqlRawAsync($"DROP SCHEMA IF EXISTS \"{schemaName}\" CASCADE;");
-            #pragma warning restore EF1002
+app.UseForwardedHeaders();
 
-            return NoContent();
-        }
-    }
+// 💡 削除: 内部通信用ポートでのパスズレを防ぐため、固定の UsePathBase は除外
+
+if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "deleuze-drive API v1");
+        c.RoutePrefix = "swagger";
+    });
 }
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapControllers();
+app.MapHealthChecks("/health");
+
+app.Run();
