@@ -6,7 +6,6 @@ using Microsoft.OpenApi.Models;
 using DeleuzeMng.Data;
 using DeleuzeMng.Services;
 using Deleuze.Shared.Infrastructure;
-using Deleuze.Shared.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -70,17 +69,16 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 var app = builder.Build();
 
-// ★ 1. パスベースの設定をパイプラインの一番最初に適用
 app.UseForwardedHeaders();
 app.UsePathBase("/api/mng");
 
-// ★ 2. Swagger の設定
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "deleuze-mng API v1");
+        // ★ 修正: "/api/mng/swagger/v1/swagger.json" から "v1/swagger.json" へ変更
+        c.SwaggerEndpoint("v1/swagger.json", "deleuze-mng API v1");
         c.RoutePrefix = "swagger";
     });
 }

@@ -5,7 +5,6 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using DeleuzeAuth.Data;
 using DeleuzeAuth.Services;
-using Deleuze.Shared.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -74,17 +73,17 @@ builder.Services.AddHealthChecks().AddDbContextCheck<AuthDbContext>("Database");
 
 var app = builder.Build();
 
-// ★ 1. パスベースの設定をパイプラインの一番最初に適用
+// ★ 追加: ForwardedHeaders と UsePathBase を適用
 app.UseForwardedHeaders();
 app.UsePathBase("/api/auth");
 
-// ★ 2. Swagger の設定 (UsePathBase 配下で動くようにエンドポイントを修正)
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "deleuze-auth API v1");
+        // ★ 修正: UsePathBase 配下のため相対パス指定にする
+        c.SwaggerEndpoint("v1/swagger.json", "deleuze-auth API v1");
         c.RoutePrefix = "swagger";
     });
 }
