@@ -15,6 +15,7 @@ using DeleuzeDrive.Services;
 using DeleuzeDrive.Authentication;
 // ★ deleuze-shared の共有ネームスペースを追加
 using Deleuze.Shared.Services;
+using Deleuze.Shared.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
