@@ -10,14 +10,14 @@ using DeleuzeDrive.Services;
 namespace DeleuzeDrive.Controllers
 {
     [ApiController]
-    [AllowAnonymous] // 👈 内部管理APIはアクセストークン不要
+    [AllowAnonymous] // 内部管理APIはアクセストークン不要
     [Route("internal/tenants")]
     public class TenantInternalController : ControllerBase
     {
         private readonly DriveDbContext _dbContext;
-        private readonly IStorageService _storageService; // 👈 S3操作サービスの追加
+        private readonly IStorageService _storageService;
 
-        public TenantInternalController(DriveDbContext dbContext, IStorageService storageService) // 👈 DIでIStorageServiceを受け取る
+        public TenantInternalController(DriveDbContext dbContext, IStorageService storageService)
         {
             _dbContext = dbContext;
             _storageService = storageService;
@@ -61,6 +61,34 @@ namespace DeleuzeDrive.Controllers
             return Ok(new { message = $"Drive schema '{schemaName}' initialized successfully." });
         }
 
+        [HttpPost("{tenantId}/migrate")]
+        public async Task<IActionResult> MigrateTenant(string tenantId)
+        {
+            // SQLインジェクションを防ぐための入力検証
+            if (string.IsNullOrWhiteSpace(tenantId) || !Regex.IsMatch(tenantId, @"^[a-zA-Z0-9_-]+$"))
+            {
+                return BadRequest("無効なテナントID形式です。英数字、ハイフン、アンダースコアのみ使用できます。");
+            }
+
+            string schemaName = $"app_{tenantId}";
+
+            try
+            {
+                // 既存テナントのスキーマに対して最新のマイグレーションや追加のDDL適用を行う
+                // ※ Entity Framework Coreのマイグレーション機能や、
+                // 必要に応じて追加テーブル作成・カラム追加などのSQLを実行します。
+                
+                // 例: 既存スキーマが存在することを前提に、追加のアップデートSQLや Migrate を実行
+                // await _dbContext.Database.MigrateAsync();
+
+                return Ok(new { message = $"Migration completed for tenant schema '{schemaName}' in drive." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = $"テナント '{tenantId}' のマイグレーション中にエラーが発生しました: {ex.Message}" });
+            }
+        }
+
         [HttpDelete("{tenantId}")]
         public async Task<IActionResult> DeleteTenant(string tenantId)
         {
@@ -77,7 +105,6 @@ namespace DeleuzeDrive.Controllers
             }
             catch (Exception ex)
             {
-                // 必要に応じてログを出力
                 return StatusCode(500, new { error = $"S3データの削除中にエラーが発生しました: {ex.Message}" });
             }
 

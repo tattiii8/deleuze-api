@@ -14,17 +14,20 @@ namespace DeleuzeMng.Services
         private readonly string _authConnString;
         private readonly Dictionary<string, Func<string, Task<bool>>> _serviceClients;
         private readonly Dictionary<string, Func<string, Task<bool>>> _disableServiceClients;
+        private readonly Dictionary<string, Func<string, Task<bool>>> _migrateServiceClients; // 👈 追加: マイグレーション用クライアント
 
         public TenantManagementService(
             string appConnString,
             string authConnString,
             Dictionary<string, Func<string, Task<bool>>> serviceClients,
-            Dictionary<string, Func<string, Task<bool>>> disableServiceClients)
+            Dictionary<string, Func<string, Task<bool>>> disableServiceClients,
+            Dictionary<string, Func<string, Task<bool>>> migrateServiceClients) // 👈 追加: コンストラクタ引数
         {
             _appConnString = appConnString;
             _authConnString = authConnString;
             _serviceClients = serviceClients;
             _disableServiceClients = disableServiceClients;
+            _migrateServiceClients = migrateServiceClients;
         }
 
         public async Task<IEnumerable<TenantInfo>> GetTenantsAsync()
@@ -218,6 +221,44 @@ namespace DeleuzeMng.Services
             return false;
         }
 
+        // 👈 追加: 特定サービスの既存テナントスキーマをマイグレーションするメソッド
+        public async Task<bool> MigrateServiceForTenantAsync(string tenantId, string serviceKey)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(serviceKey))
+            {
+                return false;
+            }
+
+            if (_migrateServiceClients.TryGetValue(serviceKey, out var migrateFunc))
+            {
+                return await migrateFunc(tenantId);
+            }
+
+            throw new ArgumentException($"マイグレーション未対応のサービスキーです: {serviceKey}");
+        }
+
+        // 👈 追加: 登録されている全サービスの既存テナントスキーマを一斉にマイグレーションするメソッド
+        public async Task<bool> MigrateAllServicesForTenantAsync(string tenantId)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId)) return false;
+
+            bool allSuccess = true;
+            foreach (var migrateFunc in _migrateServiceClients.Values)
+            {
+                try
+                {
+                    var success = await migrateFunc(tenantId);
+                    if (!success) allSuccess = false;
+                }
+                catch
+                {
+                    allSuccess = false;
+                }
+            }
+
+            return allSuccess;
+        }
+
         public async Task<string> GenerateApiKeyAsync(string tenantId)
         {
             var apiKey = $"sk_live_{Guid.NewGuid():N}{Guid.NewGuid():N}";
@@ -273,7 +314,6 @@ namespace DeleuzeMng.Services
             await using var conn = new NpgsqlConnection(_authConnString);
             await conn.OpenAsync();
 
-            // 💡 Id カラム（integer / serial）は自動採番のため INSERT 対象から除外
             const string sql = @"
                 INSERT INTO public.""Users"" (""LoginId"", ""PasswordHash"", ""TenantId"", ""CreatedAt"")
                 VALUES (@LoginId, @Password, @TenantId, NOW());";
@@ -292,7 +332,6 @@ namespace DeleuzeMng.Services
             await using var conn = new NpgsqlConnection(_authConnString);
             await conn.OpenAsync();
 
-            // 💡 integer 型として数値変換
             if (!int.TryParse(userId, out var userIntId)) return false;
 
             const string sql = @"DELETE FROM public.""Users"" WHERE ""Id"" = @Id;";

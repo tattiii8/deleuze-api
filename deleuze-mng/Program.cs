@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading.Tasks;
 using DeleuzeMng.Services;
 using DeleuzeMng.Services.Clients;
 using DeleuzeMng.Services.Infrastructure;
@@ -62,11 +63,24 @@ builder.Services.AddScoped<ITenantManagementService>(sp =>
         }
     };
 
+    // 💡 👈 追加: マイグレーション（既存テナントのスキーマアップデート）用クライアント辞書
+    var migrateServiceClients = new Dictionary<string, Func<string, Task<bool>>>
+    {
+        [client.ServiceKey] = async (tenantId) =>
+        {
+            // DriveProvisioningClient（または対応するクライアント）側に MigrateAsync がある想定、
+            // もしくは共通基盤経由でマイグレーション用メソッドを呼び出します
+            await client.MigrateTenantAsync(tenantId);
+            return true;
+        }
+    };
+
     return new TenantManagementService(
         appConnectionString, 
         authConnectionString, 
         serviceClients, 
-        disableServiceClients
+        disableServiceClients,
+        migrateServiceClients // 👈 追加した辞書をコンストラクターに渡す
     );
 });
 
