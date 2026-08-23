@@ -1,28 +1,34 @@
 using System.Collections.Generic;
 
-namespace DeleuzeMng.Controllers
-{
-    public record TenantCreationRequest(string TenantId, List<string>? EnabledServices = null);
-    public record EnableServiceRequest(string ServiceKey);
-    public record UserRegistrationRequest(string LoginId, string Password, string TenantId);
-}
-
 namespace DeleuzeMng.Models
 {
     public enum AuthMode
     {
         JwtOnly = 0,
         ApiKeyOnly = 1,
-        Both = 2
+        Hybrid = 2
+    }
+
+    public class CreateTenantRequest
+    {
+        public string TenantId { get; set; } = string.Empty;
+        public string? Name { get; set; }
+        public List<string>? Services { get; set; }
+    }
+
+    public class EnableServiceRequest
+    {
+        public string ServiceKey { get; set; } = string.Empty;
+    }
+
+    // 💡 追加: サービス無効化用のリクエストボディ型
+    public class DisableServiceRequest
+    {
+        public string ServiceKey { get; set; } = string.Empty;
     }
 
     public class UpdateAuthModeRequest
     {
         public AuthMode AuthMode { get; set; }
-    }
-
-    public class ApiKeyResponse
-    {
-        public string ApiKey { get; set; } = string.Empty;
     }
 }

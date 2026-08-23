@@ -24,10 +24,8 @@ builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
 var authConnectionString = builder.Configuration.GetConnectionString("AuthConnection")
     ?? throw new InvalidOperationException("接続文字列 'AuthConnection' が設定されていません。");
 
-if (string.IsNullOrEmpty(builder.Configuration.GetConnectionString("AppConnection")))
-{
-    throw new InvalidOperationException("接続文字列 'AppConnection' が設定されていません。");
-}
+var appConnectionString = builder.Configuration.GetConnectionString("AppConnection")
+    ?? throw new InvalidOperationException("接続文字列 'AppConnection' が設定されていません。");
 
 var enableMngAuth = builder.Configuration.GetValue<bool>("ENABLE_MNG_AUTH", true);
 var apiSecret = builder.Configuration["MANAGEMENT_API_SECRET"];
@@ -36,9 +34,45 @@ if (enableMngAuth && string.IsNullOrEmpty(apiSecret))
     throw new InvalidOperationException("認証が有効ですが、環境変数 'MANAGEMENT_API_SECRET' が設定されていません。");
 }
 
-// 💡 マイクロサービス連携用 Client および Service の DI 登録
+// 💡 マイクロサービス連携用 Client の DI 登録
 builder.Services.AddHttpClient<IServiceProvisioningClient, DriveProvisioningClient>();
-builder.Services.AddScoped<TenantManagementService>();
+
+// 💡 Service クライアント辞書の準備と TenantManagementService の DI 登録
+builder.Services.AddScoped<ITenantManagementService>(sp =>
+{
+    var client = sp.GetRequiredService<IServiceProvisioningClient>();
+
+    // 💡 有効化（プロビジョニング）用クライアント辞書
+    var serviceClients = new Dictionary<string, Func<string, Task<bool>>>
+    {
+        [client.ServiceKey] = async (tenantId) =>
+        {
+            await client.InitializeTenantAsync(tenantId);
+            return true;
+        }
+    };
+
+    // 💡 無効化（デプロビジョニング・削除）用クライアント辞書
+    var disableServiceClients = new Dictionary<string, Func<string, Task<bool>>>
+    {
+        [client.ServiceKey] = async (tenantId) =>
+        {
+            await client.RollbackTenantAsync(tenantId);
+            return true;
+        }
+    };
+
+    return new TenantManagementService(
+        appConnectionString, 
+        authConnectionString, 
+        serviceClients, 
+        disableServiceClients
+    );
+});
+
+// コンストラクター直接注入や具象型解決が必要な場合のフォールバック登録
+builder.Services.AddScoped<TenantManagementService>(sp => 
+    (TenantManagementService)sp.GetRequiredService<ITenantManagementService>());
 
 // 💡 コントローラーをサービスコンテナに追加
 builder.Services.AddControllers();

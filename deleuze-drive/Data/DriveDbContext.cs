@@ -1,35 +1,28 @@
 using Microsoft.EntityFrameworkCore;
 using DeleuzeDrive.Models;
-using DeleuzeDrive.Services;
+using Deleuze.Shared.Data;
+using Deleuze.Shared.Services;
 
-namespace DeleuzeDrive.Data
+namespace DeleuzeDrive.Data;
+
+public class DriveDbContext : TenantDbContextBase
 {
-    public class DriveDbContext : DbContext
+    public DriveDbContext(DbContextOptions<DriveDbContext> options, ITenantProvider tenantProvider) 
+        // ★ 第3引数にサービスキー "drive" を渡す
+        : base(options, tenantProvider, "drive") 
     {
-        private readonly ITenantProvider _tenantProvider;
+    }
 
-        public DriveDbContext(DbContextOptions<DriveDbContext> options, ITenantProvider tenantProvider) 
-            : base(options)
-        {
-            _tenantProvider = tenantProvider;
-        }
+    public DbSet<FileMetadata> Files { get; set; } = null!;
+    public DbSet<Folder> Folders { get; set; } = null!;
 
-        public DbSet<FileMetadata> Files { get; set; }
-        public DbSet<Folder> Folders { get; set; }
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        // ★ 基底クラスの OnModelCreating を呼ぶことで drive_{tenantId} スキーマが自動設定される
+        base.OnModelCreating(modelBuilder);
 
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-
-            // リクエストヘッダーからテナントIDを取得し、スキーマ名 (app_{tenantId}) を動的指定
-            var tenantId = _tenantProvider.GetTenantId();
-            var schemaName = $"app_{tenantId}";
-
-            modelBuilder.HasDefaultSchema(schemaName);
-
-            // テーブルマッピングの明示設定
-            modelBuilder.Entity<FileMetadata>().ToTable("Files");
-            modelBuilder.Entity<Folder>().ToTable("Folders");
-        }
+        // テーブルマッピングの個別設定のみ記述
+        modelBuilder.Entity<FileMetadata>().ToTable("Files");
+        modelBuilder.Entity<Folder>().ToTable("Folders");
     }
 }

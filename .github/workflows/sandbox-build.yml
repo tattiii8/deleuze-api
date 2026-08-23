@@ -1,0 +1,83 @@
+name: CI Build Check
+
+on:
+  push:
+    branches: [ sandbox ]
+    paths:
+      - 'deleuze-shared/**'   # ★ 追加
+      - 'deleuze-auth/**'
+      - 'deleuze-app/**'
+      - 'deleuze-mng/**'
+      - 'deleuze-drive/**'
+      - '.github/workflows/**'
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      shared: ${{ steps.filter.outputs.shared }}
+      auth:   ${{ steps.filter.outputs.auth }}
+      app:    ${{ steps.filter.outputs.app }}
+      mng:    ${{ steps.filter.outputs.mng }}
+      drive:  ${{ steps.filter.outputs.drive }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          shared: ['deleuze-shared/**']
+          auth:   ['deleuze-auth/**']
+          app:    ['deleuze-app/**']
+          mng:    ['deleuze-mng/**']
+          drive:  ['deleuze-drive/**']
+
+  build-check:
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    # deleuze-shared または各サービスに手が入った場合、ビルドチェックを実行
+    - name: Build check deleuze-auth
+      if: ${{ needs.changes.outputs.auth == 'true' || needs.changes.outputs.shared == 'true' }}
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./deleuze-auth/Dockerfile
+        platforms: linux/amd64
+        push: false
+
+    - name: Build check deleuze-app
+      if: ${{ needs.changes.outputs.app == 'true' || needs.changes.outputs.shared == 'true' }}
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./deleuze-app/Dockerfile
+        platforms: linux/amd64
+        push: false
+
+    - name: Build check deleuze-mng
+      if: ${{ needs.changes.outputs.mng == 'true' || needs.changes.outputs.shared == 'true' }}
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./deleuze-mng/Dockerfile
+        platforms: linux/amd64
+        push: false
+
+    - name: Build check deleuze-drive
+      if: ${{ needs.changes.outputs.drive == 'true' || needs.changes.outputs.shared == 'true' }}
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./deleuze-drive/Dockerfile
+        platforms: linux/amd64
+        push: false
