@@ -1,15 +1,16 @@
-name: 本番環境イメージをECRにPUSH
+name: CI to AWS ECR
 
 on:
   push:
     branches: [ main ]
     paths:
-      - 'deleuze-shared/**'   # 共通モジュールの変更検知
+      - 'deleuze-shared/**'
       - 'deleuze-auth/**'
       - 'deleuze-app/**'
       - 'deleuze-mng/**'
       - 'deleuze-drive/**'
       - '.github/workflows/**'
+  workflow_dispatch: # ★ 追加: GitHub UIからの手動実行を許可
 
 env:
   AWS_REGION: ap-northeast-1
@@ -60,8 +61,9 @@ jobs:
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
 
+    # ★ 手動実行（workflow_dispatch）時、または対象サービス/shared に変更があった場合にビルド＆プッシュ
     - name: Build and Push deleuze-auth
-      if: ${{ needs.changes.outputs.auth == 'true' || needs.changes.outputs.shared == 'true' }}
+      if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.auth == 'true' || needs.changes.outputs.shared == 'true' }}
       uses: docker/build-push-action@v5
       with:
         context: .
@@ -73,7 +75,7 @@ jobs:
           ${{ env.ECR_REGISTRY }}/deleuze-auth:${{ github.sha }}
 
     - name: Build and Push deleuze-app
-      if: ${{ needs.changes.outputs.app == 'true' || needs.changes.outputs.shared == 'true' }}
+      if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.app == 'true' || needs.changes.outputs.shared == 'true' }}
       uses: docker/build-push-action@v5
       with:
         context: .
@@ -85,7 +87,7 @@ jobs:
           ${{ env.ECR_REGISTRY }}/deleuze-app:${{ github.sha }}
 
     - name: Build and Push deleuze-mng
-      if: ${{ needs.changes.outputs.mng == 'true' || needs.changes.outputs.shared == 'true' }}
+      if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.mng == 'true' || needs.changes.outputs.shared == 'true' }}
       uses: docker/build-push-action@v5
       with:
         context: .
@@ -97,7 +99,7 @@ jobs:
           ${{ env.ECR_REGISTRY }}/deleuze-mng:${{ github.sha }}
 
     - name: Build and Push deleuze-drive
-      if: ${{ needs.changes.outputs.drive == 'true' || needs.changes.outputs.shared == 'true' }}
+      if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.drive == 'true' || needs.changes.outputs.shared == 'true' }}
       uses: docker/build-push-action@v5
       with:
         context: .
