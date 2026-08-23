@@ -69,31 +69,20 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 var app = builder.Build();
 
-// 1. リバースプロキシのヘッダー解析を最優先
 app.UseForwardedHeaders();
-
-// 2. 組み込みの機能でパスのプレフィックスを剥離
 app.UsePathBase("/api/mng");
 
-// 3. Swagger のパスは相対パス
-if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
+// ★ 同様に if文を外し、強制マウント
+app.UseSwagger();
+app.UseSwaggerUI(c =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("v1/swagger.json", "deleuze-mng API v1");
-        c.RoutePrefix = "swagger";
-    });
-}
+    // ★ 絶対パス
+    c.SwaggerEndpoint("/api/mng/swagger/v1/swagger.json", "deleuze-mng API v1");
+    c.RoutePrefix = "swagger";
+});
 
-// 4. ここでルーティングを確定させる (MapControllers などの前であること)
-app.UseRouting();
-
-// 5. 認証・認可
 app.UseAuthentication();
 app.UseAuthorization();
-
-// 6. エンドポイントのマッピング
 app.MapControllers();
 app.MapHealthChecks("/health");
 

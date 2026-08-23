@@ -73,31 +73,21 @@ builder.Services.AddHealthChecks().AddDbContextCheck<AuthDbContext>("Database");
 
 var app = builder.Build();
 
-// 1. リバースプロキシのヘッダー解析を最優先
 app.UseForwardedHeaders();
-
-// 2. 組み込みの機能でパスのプレフィックスを剥離
 app.UsePathBase("/api/auth");
 
-// 3. Swagger のパスは相対パス
-if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
+// ★ if文を外し、強制的にSwaggerをマウントして検証する
+app.UseSwagger();
+app.UseSwaggerUI(c =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("v1/swagger.json", "deleuze-auth API v1");
-        c.RoutePrefix = "swagger";
-    });
-}
+    // ★ deleuze-drive に倣い、絶対パスをハードコード
+    c.SwaggerEndpoint("/api/auth/swagger/v1/swagger.json", "deleuze-auth API v1");
+    c.RoutePrefix = "swagger";
+});
 
-// 4. ここでルーティングを確定させる (MapControllers などの前であること)
-app.UseRouting();
-
-// 5. 認証・認可
+// app.UseRouting() は書かなくてOK (MapControllersが自動処理します)
 app.UseAuthentication();
 app.UseAuthorization();
-
-// 6. エンドポイントのマッピング
 app.MapControllers();
 app.MapHealthChecks("/health");
 
