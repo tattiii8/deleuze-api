@@ -15,4 +15,6 @@ RUN dotnet publish "deleuze-drive.csproj" -c Release -o /app/publish /p:UseAppHo
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
+
+COPY DbMigration/ ./DbMigration/
 ENTRYPOINT ["dotnet", "deleuze-drive.dll"]
