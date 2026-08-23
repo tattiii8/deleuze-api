@@ -1,76 +1,98 @@
-using System;
-using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using DeleuzeAuth.Data;
 using DeleuzeAuth.Services;
+using Deleuze.Shared.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. データベース・サービスの登録 (DI)
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-builder.Services.AddDbContext<AuthDbContext>(options => options.UseNpgsql(connectionString));
+// DbContext
+builder.Services.AddDbContext<AuthDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-builder.Services.AddSingleton<IPasswordHasher, BCryptPasswordHasher>();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<IPasswordHasher, BCryptPasswordHasher>();
 builder.Services.AddScoped<IUserService, UserService>();
-builder.Services.AddSingleton<TokenGenerator>(); // RSA 鍵の生成
+builder.Services.AddScoped<TokenGenerator>();
 
-// 2. コントローラーの有効化
+// JWT 認証
+var jwtSecret = builder.Configuration["JWT_SECRET"] ?? "your-default-jwt-secret-key-at-least-32-bytes";
+var key = System.Text.Encoding.UTF8.GetBytes(jwtSecret);
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.RequireHttpsMetadata = false;
+        options.SaveToken = true;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(key),
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            ClockSkew = TimeSpan.Zero
+        };
+    });
+
 builder.Services.AddControllers();
-
-// Swagger / OpenAPI の設定
 builder.Services.AddEndpointsApiExplorer();
+
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "deleuze-auth API", Version = "v1" });
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "JWT Authorization header using the Bearer scheme.",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.Http,
+        Scheme = "Bearer"
+    });
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
+            },
+            Array.Empty<string>()
+        }
+    });
 });
 
-// Nginx 等のリバースプロキシ対応
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
-    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor
-                              | ForwardedHeaders.XForwardedProto
-                              | ForwardedHeaders.XForwardedHost;
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedPrefix;
     options.KnownNetworks.Clear();
     options.KnownProxies.Clear();
 });
 
+builder.Services.AddHealthChecks().AddDbContextCheck<AuthDbContext>("Database");
+
 var app = builder.Build();
 
+// ★ 1. パスベースの設定をパイプラインの一番最初に適用
 app.UseForwardedHeaders();
-
-// Nginx 経由のサブパス設定 (`/api/auth`)
 app.UsePathBase("/api/auth");
 
-// Swagger UI
+// ★ 2. Swagger の設定 (UsePathBase 配下で動くようにエンドポイントを修正)
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
 {
-    app.UseSwagger(c =>
-    {
-        c.PreSerializeFilters.Add((swaggerDoc, httpReq) =>
-        {
-            var pathBase = string.IsNullOrEmpty(httpReq.PathBase.Value)
-                 ? "/api/auth"
-                 : httpReq.PathBase.Value;
-            swaggerDoc.Servers = new System.Collections.Generic.List<OpenApiServer>
-            {
-                new OpenApiServer { Url = pathBase }
-            };
-        });
-    });
-
+    app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        c.SwaggerEndpoint("v1/swagger.json", "deleuze-auth API v1");
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "deleuze-auth API v1");
         c.RoutePrefix = "swagger";
     });
 }
 
-// 3. コントローラーへのルーティングを有効化
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.MapControllers();
+app.MapHealthChecks("/health");
 
 app.Run();
