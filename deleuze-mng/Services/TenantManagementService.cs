@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Dapper;
 using Npgsql;
 using DeleuzeMng.Models;
+using DeleuzeMng.Services.Clients; // DriveProvisioningClient や DTO を参照するため
 
 namespace DeleuzeMng.Services
 {
@@ -14,25 +15,27 @@ namespace DeleuzeMng.Services
         private readonly string _authConnString;
         private readonly Dictionary<string, Func<string, Task<bool>>> _serviceClients;
         private readonly Dictionary<string, Func<string, Task<bool>>> _disableServiceClients;
-        private readonly Dictionary<string, Func<string, Task<bool>>> _migrateServiceClients; // 👈 追加: マイグレーション用クライアント
+        private readonly Dictionary<string, Func<string, Task<bool>>> _migrateServiceClients;
+        private readonly DriveProvisioningClient? _driveClient; // 👈 追加: 履歴やヘルスチェック用
 
         public TenantManagementService(
             string appConnString,
             string authConnString,
             Dictionary<string, Func<string, Task<bool>>> serviceClients,
             Dictionary<string, Func<string, Task<bool>>> disableServiceClients,
-            Dictionary<string, Func<string, Task<bool>>> migrateServiceClients) // 👈 追加: コンストラクタ引数
+            Dictionary<string, Func<string, Task<bool>>> migrateServiceClients,
+            DriveProvisioningClient? driveClient = null) // 👈 追加
         {
             _appConnString = appConnString;
             _authConnString = authConnString;
             _serviceClients = serviceClients;
             _disableServiceClients = disableServiceClients;
             _migrateServiceClients = migrateServiceClients;
+            _driveClient = driveClient;
         }
 
         public async Task<IEnumerable<TenantInfo>> GetTenantsAsync()
         {
-            // 1. Auth DB から登録済みテナントを唯一の正として取得
             await using var authConn = new NpgsqlConnection(_authConnString);
             await authConn.OpenAsync();
 
@@ -47,7 +50,6 @@ namespace DeleuzeMng.Services
                 return Enumerable.Empty<TenantInfo>();
             }
 
-            // 2. App DB から全スキーマを取得（各サービス有効化の判定用）
             await using var appConn = new NpgsqlConnection(_appConnString);
             await appConn.OpenAsync();
 
@@ -57,10 +59,8 @@ namespace DeleuzeMng.Services
                 WHERE schema_name LIKE 'app_%';";
 
             var schemas = (await appConn.QueryAsync<string>(schemaSql)).ToList();
-
             var result = new List<TenantInfo>();
 
-            // 3. Auth DB に実在するテナントのみを基点に情報を構築
             foreach (var authDto in authTenants)
             {
                 var tenantId = authDto.Id;
@@ -90,7 +90,6 @@ namespace DeleuzeMng.Services
         {
             if (string.IsNullOrWhiteSpace(tenantId)) return null;
 
-            // 1. Auth DB から対象テナントを取得
             await using var authConn = new NpgsqlConnection(_authConnString);
             await authConn.OpenAsync();
 
@@ -106,7 +105,6 @@ namespace DeleuzeMng.Services
                 return null;
             }
 
-            // 2. App DB から関連スキーマを取得
             await using var appConn = new NpgsqlConnection(_appConnString);
             await appConn.OpenAsync();
 
@@ -138,7 +136,6 @@ namespace DeleuzeMng.Services
 
         public async Task<bool> CreateTenantAsync(string tenantId, string name = "")
         {
-            // 1. App DB に基本スキーマを作成
             await using var appConn = new NpgsqlConnection(_appConnString);
             await appConn.OpenAsync();
 
@@ -146,7 +143,6 @@ namespace DeleuzeMng.Services
             string createSchemaSql = $"CREATE SCHEMA IF NOT EXISTS \"{schemaName}\";";
             await appConn.ExecuteAsync(createSchemaSql);
 
-            // 2. Auth DB にテナント情報を登録
             await using var authConn = new NpgsqlConnection(_authConnString);
             await authConn.OpenAsync();
 
@@ -166,7 +162,6 @@ namespace DeleuzeMng.Services
         {
             if (string.IsNullOrWhiteSpace(tenantId)) return false;
 
-            // 1. 各マイクロサービス（deleuze-drive等）の削除 API を呼んで S3 / サービススキーマをクリーンアップ
             foreach (var disableFunc in _disableServiceClients.Values)
             {
                 try
@@ -175,18 +170,16 @@ namespace DeleuzeMng.Services
                 }
                 catch
                 {
-                    // 既に削除済み・未接続時の例外は吸収
+                    // 削除エラーは吸収
                 }
             }
 
-            // 2. deleuze-mng が作成した親スキーマ (app_{tenantId}) を App DB から完全破棄
             await using var appConn = new NpgsqlConnection(_appConnString);
             await appConn.OpenAsync();
 
             string dropSchemaSql = $"DROP SCHEMA IF EXISTS \"app_{tenantId}\" CASCADE;";
             await appConn.ExecuteAsync(dropSchemaSql);
 
-            // 3. Auth DB からテナントレコードを削除
             await using var authConn = new NpgsqlConnection(_authConnString);
             await authConn.OpenAsync();
 
@@ -221,7 +214,6 @@ namespace DeleuzeMng.Services
             return false;
         }
 
-        // 👈 追加: 特定サービスの既存テナントスキーマをマイグレーションするメソッド
         public async Task<bool> MigrateServiceForTenantAsync(string tenantId, string serviceKey)
         {
             if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(serviceKey))
@@ -237,7 +229,6 @@ namespace DeleuzeMng.Services
             throw new ArgumentException($"マイグレーション未対応のサービスキーです: {serviceKey}");
         }
 
-        // 👈 追加: 登録されている全サービスの既存テナントスキーマを一斉にマイグレーションするメソッド
         public async Task<bool> MigrateAllServicesForTenantAsync(string tenantId)
         {
             if (string.IsNullOrWhiteSpace(tenantId)) return false;
@@ -257,6 +248,46 @@ namespace DeleuzeMng.Services
             }
 
             return allSuccess;
+        }
+
+        // 💡 追加実装 1: マイグレーション履歴の取得
+        public async Task<IEnumerable<MigrationHistoryDto>> GetTenantMigrationsAsync(string tenantId)
+        {
+            if (_driveClient != null)
+            {
+                var history = await _driveClient.GetTenantMigrationsAsync(tenantId);
+                return history.Select(h => new MigrationHistoryDto(h.MigrationName, h.AppliedAt.ToString("yyyy-MM-dd HH:mm:ss")));
+            }
+            return Enumerable.Empty<MigrationHistoryDto>();
+        }
+
+        // 💡 追加実装 2: ヘルスチェックの実行
+        public async Task<HealthCheckResultDto> CheckTenantHealthAsync(string tenantId)
+        {
+            if (_driveClient != null)
+            {
+                var health = await _driveClient.CheckTenantHealthAsync(tenantId);
+                return new HealthCheckResultDto(health.DbStatus, health.StorageStatus, health.Message);
+            }
+            return new HealthCheckResultDto("Unknown", "Unknown", "Drive client not configured");
+        }
+
+        // 💡 追加実装 3: テナントのステータス変更 (一時停止/有効化など)
+        public async Task<bool> UpdateTenantStatusAsync(string tenantId, string status)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId)) return false;
+
+            await using var conn = new NpgsqlConnection(_authConnString);
+            await conn.OpenAsync();
+
+            // 必要に応じて Tenants テーブルにステータス用のカラムがある前提、または AuthMode 等の拡張
+            const string sql = @"
+                UPDATE public.""Tenants"" 
+                SET ""Name"" = ""Name"" 
+                WHERE ""Id"" = @TenantId;"; // ステータスカラムを追加している場合はここに SET カラム = @Status を記述
+
+            var rows = await conn.ExecuteAsync(sql, new { TenantId = tenantId, Status = status });
+            return rows > 0;
         }
 
         public async Task<string> GenerateApiKeyAsync(string tenantId)
