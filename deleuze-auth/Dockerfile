@@ -2,10 +2,17 @@ FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS build
 ARG TARGETARCH
 WORKDIR /src
 
-COPY ["deleuze-auth.csproj", "./"]
-RUN dotnet restore -a $TARGETARCH
+# 1. csproj を先にコピーして依存関係を restore
+COPY ["deleuze-auth/deleuze-auth.csproj", "deleuze-auth/"]
+COPY ["deleuze-shared/deleuze-shared.csproj", "deleuze-shared/"]
+RUN dotnet restore "deleuze-auth/deleuze-auth.csproj" -a $TARGETARCH
 
-COPY . .
+# 2. ソースコード全体をコピー
+COPY deleuze-shared/ deleuze-shared/
+COPY deleuze-auth/ deleuze-auth/
+
+# 3. ビルド＆パブリッシュ実行
+WORKDIR "/src/deleuze-auth"
 RUN dotnet publish "deleuze-auth.csproj" -c Release -o /app/publish -a $TARGETARCH --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS final
