@@ -31,14 +31,12 @@ namespace Deleuze.Shared.Authentication
         {
             if (!Request.Headers.TryGetValue("X-Api-Key", out var apiKeyHeaderValues))
             {
-                Logger.LogDebug("[ApiKeyHandler] X-Api-Key header not found in request.");
                 return AuthenticateResult.NoResult();
             }
 
             var apiKey = apiKeyHeaderValues.ToString();
             if (string.IsNullOrWhiteSpace(apiKey))
             {
-                Logger.LogWarning("[ApiKeyHandler] X-Api-Key header is present but empty.");
                 return AuthenticateResult.NoResult();
             }
 
@@ -56,33 +54,25 @@ namespace Deleuze.Shared.Authentication
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    Logger.LogWarning("[ApiKeyHandler] AuthService returned failure HTTP status: {StatusCode}", response.StatusCode);
                     return AuthenticateResult.Fail($"AuthService validation failed with HTTP {response.StatusCode}.");
                 }
 
                 var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
                 var result = JsonSerializer.Deserialize<ApiKeyValidationResponse>(responseBody, options);
 
-                if (result == null)
+                if (result == null || string.IsNullOrEmpty(result.TenantId))
                 {
-                    Logger.LogError("[ApiKeyHandler] Failed to deserialize response body to ApiKeyValidationResponse. Body: {ResponseBody}", responseBody);
-                    return AuthenticateResult.Fail("Invalid response payload from AuthService.");
-                }
-
-                if (string.IsNullOrEmpty(result.TenantId))
-                {
-                    Logger.LogWarning("[ApiKeyHandler] ApiKey is invalid or TenantId is null/empty. TenantId: '{TenantId}'", result.TenantId);
                     return AuthenticateResult.Fail("Invalid API Key or missing TenantId.");
                 }
 
                 Logger.LogInformation("[ApiKeyHandler] Successfully authenticated ApiKey for TenantId: {TenantId}", result.TenantId);
 
-                // クレーム記法の違いを吸収するため同値の複数パターンを生成
                 var claims = new[]
                 {
+                    new Claim("tenant_id", result.TenantId),
+                    new Claim("tenant", result.TenantId),
                     new Claim("tenantId", result.TenantId),
                     new Claim("TenantId", result.TenantId),
-                    new Claim("tenant_id", result.TenantId),
                     new Claim(ClaimTypes.NameIdentifier, result.TenantId)
                 };
 
@@ -94,7 +84,7 @@ namespace Deleuze.Shared.Authentication
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "[ApiKeyHandler] Exception occurred while communicating with AuthService at {RequestUrl}", requestUrl);
+                Logger.LogError(ex, "[ApiKeyHandler] Exception occurred while communicating with AuthService");
                 return AuthenticateResult.Fail($"Authentication exception: {ex.Message}");
             }
         }

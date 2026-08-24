@@ -1,21 +1,33 @@
 using System.Security.Claims;
-using Deleuze.Shared.MultiTenancy;
 using Microsoft.AspNetCore.Http;
+using Deleuze.Shared.MultiTenancy;
 
-namespace Deleuze.Shared.Authentication;
-
-public class JwtTenantProvider : ITenantProvider
+namespace Deleuze.Shared.Authentication
 {
-    private readonly IHttpContextAccessor _httpContextAccessor;
-
-    public JwtTenantProvider(IHttpContextAccessor httpContextAccessor)
+    public class JwtTenantProvider : ITenantProvider
     {
-        _httpContextAccessor = httpContextAccessor;
-    }
+        private readonly IHttpContextAccessor _httpContextAccessor;
 
-    public string? GetTenantId()
-    {
-        var user = _httpContextAccessor.HttpContext?.User;
-        return user?.FindFirstValue("tenant_id") ?? user?.FindFirstValue(ClaimTypes.NameIdentifier);
+        public JwtTenantProvider(IHttpContextAccessor httpContextAccessor)
+        {
+            _httpContextAccessor = httpContextAccessor;
+        }
+
+        public string GetTenantId()
+        {
+            var user = _httpContextAccessor.HttpContext?.User;
+            if (user == null)
+            {
+                return string.Empty;
+            }
+
+            var tenantId = user.FindFirst("tenant_id")?.Value
+                ?? user.FindFirst("tenant")?.Value
+                ?? user.FindFirst("tenantId")?.Value
+                ?? user.FindFirst("TenantId")?.Value
+                ?? user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+            return tenantId ?? string.Empty;
+        }
     }
 }
