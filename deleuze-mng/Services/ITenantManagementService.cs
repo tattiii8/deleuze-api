@@ -31,6 +31,8 @@ namespace DeleuzeMng.Services
         // 全サービスに対するマイグレーション実行（失敗したサービス名を含む結果を返す）
         Task<TenantMigrationResult> MigrateAllServicesForTenantAsync(string tenantId);
 
+        Task<bool> MigrateServiceForTenantAsync(string tenantId, string serviceKey);
+
         // 💡 追加: マイグレーション履歴の取得
         Task<IEnumerable<MigrationHistoryDto>> GetTenantMigrationsAsync(string tenantId);
 

@@ -162,6 +162,45 @@ public class TenantManagementService : ITenantManagementService
         return result;
     }
 
+    public async Task<bool> MigrateServiceForTenantAsync(
+    string tenantId,
+    string serviceKey)
+    {
+        if (!_migrateServiceClients.TryGetValue(serviceKey, out var client))
+        {
+            _logger.LogWarning(
+                "未対応のサービスキーです: {ServiceKey}",
+                serviceKey);
+
+            return false;
+        }
+
+        try
+        {
+            var ok = await client(tenantId);
+
+            if (!ok)
+            {
+                _logger.LogWarning(
+                    "テナント {TenantId} のサービス {ServiceKey} マイグレーションが失敗しました(戻り値false)。",
+                    tenantId,
+                    serviceKey);
+            }
+
+            return ok;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "テナント {TenantId} のサービス {ServiceKey} マイグレーション中に例外が発生しました。",
+                tenantId,
+                serviceKey);
+
+            return false;
+        }
+    }
+
     public async Task<IEnumerable<MigrationHistoryDto>> GetTenantMigrationsAsync(string tenantId)
     {
         return await Task.FromResult(Enumerable.Empty<MigrationHistoryDto>());
