@@ -1,196 +1,218 @@
-using System;
-using System.Collections.Generic;
-using System.Security.Claims;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
-using DeleuzeDrive.Data;
-using DeleuzeDrive.Models;
-using DeleuzeDrive.Services;
-using Deleuze.Shared.Constants; // 共通定数を参照
-
-namespace DeleuzeDrive.Controllers
+[ApiController]
+[Authorize]
+[Route(ApiRoutes.Drive.Base)]
+public class DriveController : ControllerBase
 {
-    [ApiController]
-    [Authorize]
-    [Route(ApiRoutes.Drive.Base)] // -> "api/drive"
-    public class DriveController : ControllerBase
+    ...
+
+    [HttpPost("objects")]
+    public async Task<IActionResult> CreateObject(
+        [FromBody] UploadUrlRequest request)
     {
-        private readonly DriveDbContext _dbContext;
-        private readonly IStorageService _storageService;
-        private readonly ILogger<DriveController> _logger;
+        var authenticatedTenantId = GetAuthenticatedTenantId();
 
-        public DriveController(
-            DriveDbContext dbContext,
-            IStorageService storageService,
-            ILogger<DriveController> logger)
+        if (string.IsNullOrEmpty(authenticatedTenantId))
         {
-            _dbContext = dbContext;
-            _storageService = storageService;
-            _logger = logger;
-        }
+            _logger.LogWarning(
+                "[DriveController] Unauthorized: TenantId missing from authentication token or ApiKey.");
 
-        [HttpPost("upload-url")]
-        public async Task<IActionResult> GetUploadUrl([FromBody] UploadUrlRequest request)
-        {
-            var authenticatedTenantId = GetAuthenticatedTenantId();
-
-            if (string.IsNullOrEmpty(authenticatedTenantId))
+            return Unauthorized(new
             {
-                _logger.LogWarning("[DriveController] Unauthorized: TenantId missing from authentication token or ApiKey.");
-                return Unauthorized(new { error = "認証情報からテナント情報を特定できませんでした。" });
-            }
-
-            _logger.LogInformation("[DriveController] Generating upload URL for Tenant: {TenantId}, File: {FileName}", 
-                authenticatedTenantId, request.FileName);
-
-            var (uploadUrl, key) = _storageService.GeneratePresignedUploadUrl(
-                authenticatedTenantId, 
-                request.FileName, 
-                request.ContentType
-            );
-
-            var fileRecord = new FileMetadata
-            {
-                Id = Guid.NewGuid(),
-                FileName = request.FileName,
-                ContentType = request.ContentType,
-                ByteSize = request.ByteSize,
-                StoragePath = key,
-                CreatedAt = DateTime.UtcNow
-            };
-
-            try
-            {
-                _dbContext.Files.Add(fileRecord);
-                await _dbContext.SaveChangesAsync();
-
-                _logger.LogInformation("[DriveController] Created file metadata record. FileId: {FileId}, Path: {StoragePath}", 
-                    fileRecord.Id, fileRecord.StoragePath);
-
-                return Ok(new
-                {
-                    uploadUrl,
-                    fileId = fileRecord.Id,
-                    key
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[DriveController] Failed to save file metadata to DB for Tenant: {TenantId}", authenticatedTenantId);
-                return StatusCode(StatusCodes.Status500InternalServerError, new { error = "ファイルメタデータの保存に失敗しました。" });
-            }
-        }
-
-        [HttpGet]
-        public async Task<IActionResult> GetFiles()
-        {
-            var authenticatedTenantId = GetAuthenticatedTenantId();
-
-            if (string.IsNullOrEmpty(authenticatedTenantId))
-            {
-                _logger.LogWarning("[DriveController] Unauthorized: TenantId missing from context.");
-                return Unauthorized(new { error = "認証情報からテナント情報を特定できませんでした。" });
-            }
-
-            _logger.LogInformation("[DriveController] Fetching files for Tenant: {TenantId}", authenticatedTenantId);
-
-            try
-            {
-                var files = await _dbContext.Files.ToListAsync();
-                return Ok(files);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[DriveController] Error retrieving files for Tenant: {TenantId}", authenticatedTenantId);
-                return StatusCode(StatusCodes.Status500InternalServerError, new { error = "ファイル一覧の取得に失敗しました。" });
-            }
-        }
-
-        [HttpGet("{fileId:guid}/download-url")]
-        public async Task<IActionResult> GetDownloadUrl(Guid fileId)
-        {
-            var authenticatedTenantId = GetAuthenticatedTenantId();
-
-            if (string.IsNullOrEmpty(authenticatedTenantId))
-            {
-                return Unauthorized(new { error = "認証情報からテナント情報を特定できませんでした。" });
-            }
-
-            var fileRecord = await _dbContext.Files.FindAsync(fileId);
-
-            if (fileRecord == null)
-            {
-                _logger.LogWarning("[DriveController] File not found. FileId: {FileId}", fileId);
-                return NotFound(new { error = "ファイルが見つかりません。" });
-            }
-
-            _logger.LogInformation("[DriveController] Generating download URL for FileId: {FileId}, Path: {StoragePath}", 
-                fileId, fileRecord.StoragePath);
-
-            var downloadUrl = _storageService.GeneratePresignedDownloadUrl(fileRecord.StoragePath);
-
-            return Ok(new
-            {
-                downloadUrl,
-                fileName = fileRecord.FileName,
-                contentType = fileRecord.ContentType
+                error = "認証情報からテナント情報を特定できませんでした。"
             });
         }
 
-        [HttpDelete("{fileId:guid}")]
-        public async Task<IActionResult> DeleteFile(Guid fileId)
+        _logger.LogInformation(
+            "[DriveController] Generating upload URL for Tenant: {TenantId}, File: {FileName}",
+            authenticatedTenantId,
+            request.FileName);
+
+        var (uploadUrl, key) = _storageService.GeneratePresignedUploadUrl(
+            authenticatedTenantId,
+            request.FileName,
+            request.ContentType
+        );
+
+        var fileRecord = new FileMetadata
         {
-            var authenticatedTenantId = GetAuthenticatedTenantId();
+            Id = Guid.NewGuid(),
+            FileName = request.FileName,
+            ContentType = request.ContentType,
+            ByteSize = request.ByteSize,
+            StoragePath = key,
+            CreatedAt = DateTime.UtcNow
+        };
 
-            if (string.IsNullOrEmpty(authenticatedTenantId))
+        try
+        {
+            _dbContext.Files.Add(fileRecord);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "[DriveController] Created object. ObjectId: {ObjectId}, Path: {StoragePath}",
+                fileRecord.Id,
+                fileRecord.StoragePath);
+
+            return Ok(new
             {
-                return Unauthorized(new { error = "認証情報からテナント情報を特定できませんでした。" });
-            }
-
-            var fileRecord = await _dbContext.Files.FindAsync(fileId);
-
-            if (fileRecord == null)
-            {
-                _logger.LogWarning("[DriveController] Delete failed. File not found. FileId: {FileId}", fileId);
-                return NotFound(new { error = "ファイルが見つかりません。" });
-            }
-
-            _logger.LogInformation("[DriveController] Deleting file. FileId: {FileId}, Path: {StoragePath}", fileId, fileRecord.StoragePath);
-
-            try
-            {
-                await _storageService.DeleteAsync(fileRecord.StoragePath);
-                _dbContext.Files.Remove(fileRecord);
-                await _dbContext.SaveChangesAsync();
-
-                _logger.LogInformation("[DriveController] Successfully deleted file. FileId: {FileId}", fileId);
-                return NoContent();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[DriveController] Error deleting file. FileId: {FileId}", fileId);
-                return StatusCode(StatusCodes.Status500InternalServerError, new { error = "ファイルの削除に失敗しました。" });
-            }
+                objectId = fileRecord.Id,
+                uploadUrl,
+                key
+            });
         }
-
-        private string? GetAuthenticatedTenantId()
+        catch (Exception ex)
         {
-            return User.FindFirst("tenant")?.Value 
-                ?? User.FindFirst("tenant_id")?.Value 
-                ?? User.FindFirst("tenantId")?.Value 
-                ?? User.FindFirst("TenantId")?.Value 
-                ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            _logger.LogError(
+                ex,
+                "[DriveController] Failed to save object metadata. Tenant: {TenantId}",
+                authenticatedTenantId);
+
+            return StatusCode(
+                StatusCodes.Status500InternalServerError,
+                new { error = "ファイルメタデータの保存に失敗しました。" });
         }
     }
 
-    public class UploadUrlRequest
+    [HttpGet("objects")]
+    public async Task<IActionResult> GetObjects()
     {
-        public string FileName { get; set; } = string.Empty;
-        public string ContentType { get; set; } = string.Empty;
-        public long ByteSize { get; set; }
+        var authenticatedTenantId = GetAuthenticatedTenantId();
+
+        if (string.IsNullOrEmpty(authenticatedTenantId))
+        {
+            _logger.LogWarning(
+                "[DriveController] Unauthorized: TenantId missing from context.");
+
+            return Unauthorized(new
+            {
+                error = "認証情報からテナント情報を特定できませんでした。"
+            });
+        }
+
+        _logger.LogInformation(
+            "[DriveController] Fetching objects for Tenant: {TenantId}",
+            authenticatedTenantId);
+
+        try
+        {
+            var objects = await _dbContext.Files.ToListAsync();
+
+            return Ok(objects);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "[DriveController] Error retrieving objects for Tenant: {TenantId}",
+                authenticatedTenantId);
+
+            return StatusCode(
+                StatusCodes.Status500InternalServerError,
+                new { error = "ファイル一覧の取得に失敗しました。" });
+        }
+    }
+
+    [HttpGet("objects/{objectId:guid}")]
+    public async Task<IActionResult> GetObject(Guid objectId)
+    {
+        var authenticatedTenantId = GetAuthenticatedTenantId();
+
+        if (string.IsNullOrEmpty(authenticatedTenantId))
+        {
+            return Unauthorized(new
+            {
+                error = "認証情報からテナント情報を特定できませんでした。"
+            });
+        }
+
+        var objectRecord = await _dbContext.Files.FindAsync(objectId);
+
+        if (objectRecord == null)
+        {
+            _logger.LogWarning(
+                "[DriveController] Object not found. ObjectId: {ObjectId}",
+                objectId);
+
+            return NotFound(new
+            {
+                error = "ファイルが見つかりません。"
+            });
+        }
+
+        _logger.LogInformation(
+            "[DriveController] Generating download URL for ObjectId: {ObjectId}, Path: {StoragePath}",
+            objectId,
+            objectRecord.StoragePath);
+
+        var downloadUrl =
+            _storageService.GeneratePresignedDownloadUrl(
+                objectRecord.StoragePath);
+
+        return Ok(new
+        {
+            objectId = objectRecord.Id,
+            fileName = objectRecord.FileName,
+            contentType = objectRecord.ContentType,
+            byteSize = objectRecord.ByteSize,
+            downloadUrl
+        });
+    }
+
+    [HttpDelete("objects/{objectId:guid}")]
+    public async Task<IActionResult> DeleteObject(Guid objectId)
+    {
+        var authenticatedTenantId = GetAuthenticatedTenantId();
+
+        if (string.IsNullOrEmpty(authenticatedTenantId))
+        {
+            return Unauthorized(new
+            {
+                error = "認証情報からテナント情報を特定できませんでした。"
+            });
+        }
+
+        var objectRecord = await _dbContext.Files.FindAsync(objectId);
+
+        if (objectRecord == null)
+        {
+            _logger.LogWarning(
+                "[DriveController] Delete failed. Object not found. ObjectId: {ObjectId}",
+                objectId);
+
+            return NotFound(new
+            {
+                error = "ファイルが見つかりません。"
+            });
+        }
+
+        _logger.LogInformation(
+            "[DriveController] Deleting object. ObjectId: {ObjectId}, Path: {StoragePath}",
+            objectId,
+            objectRecord.StoragePath);
+
+        try
+        {
+            await _storageService.DeleteAsync(objectRecord.StoragePath);
+
+            _dbContext.Files.Remove(objectRecord);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "[DriveController] Successfully deleted object. ObjectId: {ObjectId}",
+                objectId);
+
+            return NoContent();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "[DriveController] Error deleting object. ObjectId: {ObjectId}",
+                objectId);
+
+            return StatusCode(
+                StatusCodes.Status500InternalServerError,
+                new { error = "ファイルの削除に失敗しました。" });
+        }
     }
 }
