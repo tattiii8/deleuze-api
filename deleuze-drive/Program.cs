@@ -55,7 +55,9 @@ builder.Services.AddDbContext<DriveDbContext>((sp, options) => {
     options.ReplaceService<IModelCacheKeyFactory, TenantModelCacheKeyFactory>(); 
 });
 
-// SQL Migration サービス
+// Provisioning サービス 
+builder.Services.AddScoped<ITenantProvisioningService, TenantProvisioningService>();
+// Migration サービス
 builder.Services.AddScoped<ITenantMigrationService, TenantMigrationService>(); 
 
 // AWS S3 Storage Service
