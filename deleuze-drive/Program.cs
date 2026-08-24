@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using DeleuzeDrive.Data;
@@ -15,6 +16,12 @@ using DeleuzeDrive.Services;
 using DeleuzeDrive.Authentication;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ログ設定の統一
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.SetMinimumLevel(LogLevel.Information);
+builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
 
 // DbContext (PostgreSQL) の登録 + 動的モデルキャッシュキーファクトリの設定
 builder.Services.AddDbContext<DriveDbContext>((sp, options) =>
@@ -31,7 +38,7 @@ builder.Services.AddScoped<ITenantProvider, JwtTenantProvider>();
 // SQLファイルベースのマルチテナントマイグレーションサービスの登録
 builder.Services.AddScoped<ITenantMigrationService, TenantMigrationService>();
 
-// AWS S3 サービスおよび IStorageService の登録
+// AWS S3 サービスおよび IStorageService の登録（環境変数を使用するシングルトン）
 builder.Services.AddSingleton<IAmazonS3>(_ => 
     new AmazonS3Client(
         new Amazon.Runtime.EnvironmentVariablesAWSCredentials(), 
@@ -150,12 +157,15 @@ var app = builder.Build();
 
 app.UseForwardedHeaders();
 
+// 💡 mng サービスと統一：パスベースのプレフィックスを認識
+app.UsePathBase("/api/drive");
+
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "deleuze-drive API v1");
+        c.SwaggerEndpoint("/api/drive/swagger/v1/swagger.json", "deleuze-drive API v1");
         c.RoutePrefix = "swagger";
     });
 }

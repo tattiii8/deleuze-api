@@ -31,34 +31,27 @@ namespace DeleuzeDrive.Controllers
             return Ok(files);
         }
 
-        /// <summary>
-        /// S3 へ直接アップロードするための署名付き URL と メタデータレコードを発行・生成する
-        /// </summary>
         [HttpPost("upload-url")]
         public async Task<IActionResult> GetUploadUrl([FromBody] CreateUploadUrlRequest request)
         {
             if (string.IsNullOrWhiteSpace(request.FileName))
-                return BadRequest("ファイル名が指定されていません。");
+                return BadRequest(new { error = "ファイル名が指定されていません。" });
 
-            // 認証されたユーザーのクレーム等から TenantId を取得（システムの実装に合わせて調整してください）
-            // 例: request.TenantId から受け取る場合は request.TenantId を使用します
             var tenantId = User.FindFirst("tenant_id")?.Value 
                         ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
                         ?? request.TenantId;
 
             if (string.IsNullOrWhiteSpace(tenantId))
             {
-                return BadRequest("テナントIDが取得できませんでした。");
+                return BadRequest(new { error = "テナントIDが取得できませんでした。" });
             }
 
             var contentType = string.IsNullOrWhiteSpace(request.ContentType)
                 ? "application/octet-stream"
                 : request.ContentType;
 
-            // 1. S3 署名付きアップロード URL と Key を生成（tenantId を第1引数に指定）
             var (uploadUrl, key) = _storageService.GeneratePresignedUploadUrl(tenantId, request.FileName, contentType);
 
-            // 2. メタデータを DB に保存
             var metadata = new FileMetadata
             {
                 FileName = request.FileName,
@@ -70,7 +63,6 @@ namespace DeleuzeDrive.Controllers
             _dbContext.Files.Add(metadata);
             await _dbContext.SaveChangesAsync();
 
-            // 3. クライアントに S3 アップロード用 URL と作成されたメタデータを返す
             return Ok(new
             {
                 uploadUrl,
@@ -78,9 +70,6 @@ namespace DeleuzeDrive.Controllers
             });
         }
 
-        /// <summary>
-        /// S3 から直接ダウンロードするための署名付き URL を取得する
-        /// </summary>
         [HttpGet("files/{id:guid}/download-url")]
         public async Task<IActionResult> GetDownloadUrl(Guid id)
         {
@@ -90,7 +79,6 @@ namespace DeleuzeDrive.Controllers
                 return NotFound(new { error = "指定されたファイルのメタデータが見つかりません。" });
             }
 
-            // S3 直接ダウンロード用の署名付き URL を生成
             var downloadUrl = _storageService.GeneratePresignedDownloadUrl(fileMetadata.StoragePath);
 
             return Ok(new
@@ -113,7 +101,7 @@ namespace DeleuzeDrive.Controllers
             }
             catch (Exception)
             {
-                // ログ出力等の例外ハンドリングを適宜行う
+                // ログ出力等の例外ハンドリング
             }
 
             _dbContext.Files.Remove(file);
@@ -123,16 +111,11 @@ namespace DeleuzeDrive.Controllers
         }
     }
 
-    /// <summary>
-    /// アップロード URL 発行リクエスト用 DTO
-    /// </summary>
     public class CreateUploadUrlRequest
     {
         public string FileName { get; set; } = string.Empty;
         public string ContentType { get; set; } = string.Empty;
         public long ByteSize { get; set; }
-        
-        // クライアントのリクエストボディから直接 TenantId を受ける場合はこちらを使用
         public string? TenantId { get; set; }
     }
 }
