@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using DeleuzeDrive.Services;
+using Deleuze.Shared.MultiTenancy;
 
 namespace DeleuzeDrive.Data
 {
