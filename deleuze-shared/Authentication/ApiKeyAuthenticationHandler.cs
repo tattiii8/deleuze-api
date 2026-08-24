@@ -42,7 +42,7 @@ namespace Deleuze.Shared.Authentication
 
             // 💡 修正: 正しいプレフィックス /api/auth/internal/apikey を指定
             // BaseAddress が "http://192.168.8.112:5001/" の場合でも "api/auth/internal/apikey" と結合されて正しくリクエストされます
-            const string relativePath = "api/auth/internal/apikey";
+            const string relativePath = "internal/apikey";
 
             var requestUrl = new Uri(_httpClient.BaseAddress!, relativePath);
             Logger.LogInformation("[ApiKeyHandler] Attempting ApiKey validation against AuthService URL: {RequestUrl}", requestUrl);
