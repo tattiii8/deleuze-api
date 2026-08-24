@@ -14,6 +14,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi.Models;
 using DeleuzeMng.Data;
+using Deleuze.Shared.Constants;
+using Deleuze.Shared.Swagger; // 共通 Swagger 拡張を参照
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -37,15 +39,14 @@ if (enableMngAuth && string.IsNullOrEmpty(apiSecret))
 
 // 💡 マイクロサービス連携用 Client の DI 登録
 builder.Services.AddHttpClient<IServiceProvisioningClient, DriveProvisioningClient>();
-builder.Services.AddHttpClient<DriveProvisioningClient>(); // 👈 追加: 個別インジェクション用
+builder.Services.AddHttpClient<DriveProvisioningClient>();
 
 // 💡 Service クライアント辞書の準備と TenantManagementService の DI 登録
 builder.Services.AddScoped<ITenantManagementService>(sp =>
 {
     var client = sp.GetRequiredService<IServiceProvisioningClient>();
-    var driveClient = sp.GetRequiredService<DriveProvisioningClient>(); // 👈 追加: 履歴・ヘルスチェック用クライアントを取得
+    var driveClient = sp.GetRequiredService<DriveProvisioningClient>();
 
-    // 💡 有効化（プロビジョニング）用クライアント辞書
     var serviceClients = new Dictionary<string, Func<string, Task<bool>>>
     {
         [client.ServiceKey] = async (tenantId) =>
@@ -55,7 +56,6 @@ builder.Services.AddScoped<ITenantManagementService>(sp =>
         }
     };
 
-    // 💡 無効化（デプロビジョニング・削除）用クライアント辞書
     var disableServiceClients = new Dictionary<string, Func<string, Task<bool>>>
     {
         [client.ServiceKey] = async (tenantId) =>
@@ -65,7 +65,6 @@ builder.Services.AddScoped<ITenantManagementService>(sp =>
         }
     };
 
-    // 💡 マイグレーション用クライアント辞書
     var migrateServiceClients = new Dictionary<string, Func<string, Task<bool>>>
     {
         [client.ServiceKey] = async (tenantId) =>
@@ -81,15 +80,13 @@ builder.Services.AddScoped<ITenantManagementService>(sp =>
         serviceClients, 
         disableServiceClients,
         migrateServiceClients,
-        driveClient // 👈 正しく DriveProvisioningClient を渡す
+        driveClient
     );
 });
 
-// コンストラクター直接注入や具象型解決が必要な場合のフォールバック登録
 builder.Services.AddScoped<TenantManagementService>(sp => 
     (TenantManagementService)sp.GetRequiredService<ITenantManagementService>());
 
-// 💡 コントローラーをサービスコンテナに追加
 builder.Services.AddControllers();
 
 builder.Services.AddEndpointsApiExplorer();
@@ -122,7 +119,6 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-// リバースプロキシ（Nginx）からの Forwarded ヘッダー対応設定
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedPrefix;
@@ -132,11 +128,10 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 var app = builder.Build();
 
-// リバースプロキシのヘッダー処理を有効化
 app.UseForwardedHeaders();
 
-// Nginx から送られてくる `/api/mng` プレフィックスを認識
-app.UsePathBase("/api/mng");
+// 💡 削除: UsePathBase は廃止し、コントローラーの Route 属性と Swagger ルーティングで管理
+// app.UsePathBase("/api/mng");
 
 if (!enableMngAuth)
 {
@@ -146,24 +141,16 @@ if (!enableMngAuth)
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-// Swagger UI の設定
-if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
-{
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/api/mng/swagger/v1/swagger.json", "deleuze-mng API v1");
-        c.RoutePrefix = "swagger";
-    });
-}
+// 💡 共通拡張メソッド呼び出し（Management のプレフィックス配下へ Swagger UI をマッピング）
+app.UseDeleuzeSwagger(app.Environment, builder.Configuration, ApiRoutes.Management.Tenants, "deleuze-mng API");
 
 await DbInitializer.EnsureSeedDataAsync(authConnectionString);
 
 // 🔒 トークン検証ミドルウェア
 app.Use(async (context, next) =>
 {
-    // Swagger UI 関連へのアクセスは認証をスキップ
-    if (context.Request.Path.StartsWithSegments("/swagger"))
+    // Swagger UI 関連へのアクセスは認証をスキップ (swagger キーワード判定に統一)
+    if (context.Request.Path.Value?.Contains("swagger", StringComparison.OrdinalIgnoreCase) == true)
     {
         await next();
         return;
@@ -192,12 +179,10 @@ app.Use(async (context, next) =>
     await next();
 });
 
-// 🛠️ コントローラーのルーティングをマッピング
 app.MapControllers();
 
 app.Run();
 
-// 🔑 トークン検証ロジック
 static (bool IsValid, string Reason) ValidateDynamicTokenWithReason(string rawToken, string secretKey, TimeSpan validDuration)
 {
     if (string.IsNullOrWhiteSpace(rawToken)) return (false, "トークンが空です。");

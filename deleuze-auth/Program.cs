@@ -8,6 +8,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.OpenApi.Models;
 using DeleuzeAuth.Data;
 using DeleuzeAuth.Services;
+using Deleuze.Shared.Constants;
+using Deleuze.Shared.Swagger; // 共通 Swagger 拡張を参照
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,7 +24,7 @@ builder.Services.AddSingleton<TokenGenerator>(); // RSA 鍵の生成
 // 2. コントローラーの有効化
 builder.Services.AddControllers();
 
-// Swagger / OpenAPI の設定
+// Swagger Generator の設定
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -43,32 +45,8 @@ var app = builder.Build();
 
 app.UseForwardedHeaders();
 
-// 💡 削除: コントローラー側で ApiRoutes (例: "api/auth/internal") を直接定義しているため、
-// UsePathBase を指定すると Swagger やルーティングでパスが重複する原因になります。
-// app.UsePathBase("/api/auth");
-
-// Swagger UI
-if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
-{
-    app.UseSwagger(c =>
-    {
-        c.PreSerializeFilters.Add((swaggerDoc, httpReq) =>
-        {
-            var host = httpReq.Host.Value;
-            var scheme = httpReq.Scheme;
-            swaggerDoc.Servers = new System.Collections.Generic.List<OpenApiServer>
-            {
-                new OpenApiServer { Url = $"{scheme}://{host}" }
-            };
-        });
-    });
-
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "deleuze-auth API v1");
-        c.RoutePrefix = "swagger";
-    });
-}
+// 💡 共通拡張メソッド呼び出し（api/auth/swagger へ自動マッピング）
+app.UseDeleuzeSwagger(app.Environment, builder.Configuration, ApiRoutes.Auth.Base, "deleuze-auth API");
 
 // 3. コントローラーへのルーティングを有効化
 app.MapControllers();

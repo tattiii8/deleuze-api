@@ -15,7 +15,9 @@ using Microsoft.OpenApi.Models;
 using DeleuzeDrive.Data; 
 using DeleuzeDrive.Services; 
 using Deleuze.Shared.Authentication; 
+using Deleuze.Shared.Constants;
 using Deleuze.Shared.MultiTenancy; 
+using Deleuze.Shared.Swagger; // 共通 Swagger 拡張を参照
 
 var builder = WebApplication.CreateBuilder(args); 
 
@@ -97,7 +99,7 @@ builder.Services.AddAuthentication(options => {
 builder.Services.AddControllers(); 
 builder.Services.AddEndpointsApiExplorer(); 
 
-// Swagger UI  
+// Swagger Generator の設定
 builder.Services.AddSwaggerGen(c => {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "deleuze-drive API", Version = "v1" }); 
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme 
@@ -155,27 +157,8 @@ var app = builder.Build();
 
 app.UseForwardedHeaders(); 
 
-if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true)) 
-{
-    app.UseSwagger(c =>
-    {
-        c.PreSerializeFilters.Add((swaggerDoc, httpReq) =>
-        {
-            var host = httpReq.Host.Value;
-            var scheme = httpReq.Scheme;
-            swaggerDoc.Servers = new System.Collections.Generic.List<OpenApiServer>
-            {
-                new OpenApiServer { Url = $"{scheme}://{host}" }
-            };
-        });
-    }); 
-
-    app.UseSwaggerUI(c => 
-    { 
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "deleuze-drive API v1"); 
-        c.RoutePrefix = "swagger"; 
-    }); 
-}
+// 💡 共通拡張メソッド呼び出し（api/drive/swagger へ自動マッピング）
+app.UseDeleuzeSwagger(app.Environment, builder.Configuration, ApiRoutes.Drive.Base, "deleuze-drive API");
 
 app.UseAuthentication(); 
 app.UseAuthorization(); 
