@@ -50,8 +50,8 @@ if (enableMngAuth && string.IsNullOrEmpty(apiSecret))
 
 // 各サービスのベースURL設定
 // Nomad等の環境変数から "http://<プライベートIP>:<ポート>" を取得（未設定の場合はデフォルト値へフォールバック）
-var authServiceUrl = builder.Configuration["AUTH_SERVICE_URL"] ?? "192.168.8.112:5001";
-var driveServiceUrl = builder.Configuration["DRIVE_SERVICE_URL"] ?? "192.168.8.112:5004";
+var authServiceUrl = builder.Configuration["AUTH_SERVICE_URL"] ?? "http://192.168.8.112:5001";
+var driveServiceUrl = builder.Configuration["DRIVE_SERVICE_URL"] ?? "http://192.168.8.112:5004";
 
 builder.Services.AddHttpClient();
 
