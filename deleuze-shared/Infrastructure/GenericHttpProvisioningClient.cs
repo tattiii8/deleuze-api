@@ -1,3 +1,4 @@
+using System;
 using System.Net.Http;
 using System.Threading.Tasks;
 
@@ -11,24 +12,28 @@ namespace Deleuze.Shared.Infrastructure
         public GenericHttpProvisioningClient(HttpClient httpClient, string serviceName, string baseUrl)
         {
             _httpClient = httpClient;
-            _httpClient.BaseAddress = new Uri(baseUrl);
+            // BaseAddress の末尾スラッシュを補正
+            var formattedBaseUrl = baseUrl.EndsWith("/") ? baseUrl : baseUrl + "/";
+            _httpClient.BaseAddress = new Uri(formattedBaseUrl);
             _serviceName = serviceName;
         }
 
         public async Task ProvisionTenantAsync(string tenantId)
         {
-            await _httpClient.PostAsync($"/internal/tenants/{tenantId}", null);
+            // 💡 先頭スラッシュを削除
+            await _httpClient.PostAsync($"internal/tenants/{tenantId}", null);
         }
 
         public async Task DeprovisionTenantAsync(string tenantId)
         {
-            await _httpClient.DeleteAsync($"/internal/tenants/{tenantId}");
+            // 💡 先頭スラッシュを削除
+            await _httpClient.DeleteAsync($"internal/tenants/{tenantId}");
         }
 
         public async Task MigrateTenantAsync(string tenantId)
         {
-            // 各サービスのマイグレーション用内部エンドポイントを叩く
-            await _httpClient.PostAsync($"/internal/tenants/{tenantId}/migrate", null);
+            // 💡 先頭スラッシュを削除
+            await _httpClient.PostAsync($"internal/tenants/{tenantId}/migrate", null);
         }
     }
 }
