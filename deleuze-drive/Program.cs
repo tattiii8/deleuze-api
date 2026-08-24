@@ -24,6 +24,10 @@ builder.Logging.AddConsole();
 builder.Logging.SetMinimumLevel(LogLevel.Information); 
 builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning); 
 
+// HttpContextAccessor と ITenantProvider の DI 登録を追加
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ITenantProvider, JwtTenantProvider>();
+
 // DbContext (PostgreSQL)  
 builder.Services.AddDbContext<DriveDbContext>((sp, options) => {
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")); 
