@@ -154,14 +154,13 @@ builder.Services.AddHealthChecks().AddDbContextCheck<DriveDbContext>("Database")
 var app = builder.Build(); 
 
 app.UseForwardedHeaders(); 
-app.UsePathBase("/api/drive"); 
 
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true)) 
 {
     app.UseSwagger(); 
     app.UseSwaggerUI(c => 
     { 
-        c.SwaggerEndpoint("/api/drive/swagger/v1/swagger.json", "deleuze-drive API v1"); 
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "deleuze-drive API v1"); 
         c.RoutePrefix = "swagger"; 
     }); 
 }
