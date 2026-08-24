@@ -1,3 +1,5 @@
+using System.Threading.Tasks;
+
 namespace Deleuze.Shared.Infrastructure;
 
 public interface ITenantSchemaMigrator

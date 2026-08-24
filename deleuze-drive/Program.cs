@@ -60,20 +60,20 @@ builder.Services.AddDbContext<DriveDbContext>((sp, options) => {
 // Tenant Schema Provisioning / Migration
 // --------------------------------------------------
 
-builder.Services.AddScoped<TenantSchemaMigrationRunner>(sp =>
+builder.Services.AddScoped<TenantSchemaManager>(sp =>
 {
     var connectionString =
         builder.Configuration.GetConnectionString("DefaultConnection")
         ?? "Host=deleuze-db;Database=deleuze_drive;Username=postgres;Password=postgres";
 
-    return new TenantSchemaMigrationRunner(connectionString);
+    return new TenantSchemaManager(connectionString);
 });
 
 builder.Services.AddScoped<ITenantSchemaProvisioner>(
-    sp => sp.GetRequiredService<TenantSchemaMigrationRunner>());
+    sp => sp.GetRequiredService<TenantSchemaManager>());
 
 builder.Services.AddScoped<ITenantSchemaMigrator>(
-    sp => sp.GetRequiredService<TenantSchemaMigrationRunner>());
+    sp => sp.GetRequiredService<TenantSchemaManager>());
 
 // Drive固有の薄いサービス
 builder.Services.AddScoped<

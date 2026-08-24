@@ -7,13 +7,13 @@ using Npgsql;
 
 namespace Deleuze.Shared.Infrastructure;
 
-public class TenantSchemaMigrationRunner :
+public class TenantSchemaManager :
     ITenantSchemaProvisioner,
     ITenantSchemaMigrator
 {
     private readonly string _connectionString;
 
-    public TenantSchemaMigrationRunner(string connectionString)
+    public TenantSchemaManager(string connectionString)
     {
         _connectionString = connectionString
             ?? throw new ArgumentNullException(nameof(connectionString));
@@ -44,8 +44,7 @@ public class TenantSchemaMigrationRunner :
             connection,
             schemaName);
 
-        // ProvisionもMigrationと同じ仕組みで実行する。
-        // つまり、既に適用済みならスキップする。
+        // 未適用Migrationをすべて適用
         await ApplyPendingMigrationsAsync(
             connection,
             schemaName,
@@ -63,8 +62,7 @@ public class TenantSchemaMigrationRunner :
 
         await connection.OpenAsync();
 
-        // MigrationではSchemaを作成しない。
-        // Provision済みであることを前提とする。
+        // MigrationではSchemaを作成しない
         if (!await SchemaExistsAsync(
                 connection,
                 schemaName))
@@ -74,6 +72,7 @@ public class TenantSchemaMigrationRunner :
                 "Provisioning must be completed before migration.");
         }
 
+        // Migrationでは履歴テーブルも作成しない
         if (!await MigrationTableExistsAsync(
                 connection,
                 schemaName))
@@ -83,17 +82,19 @@ public class TenantSchemaMigrationRunner :
                 "Provisioning must be completed before migration.");
         }
 
+        // 未適用Migrationを適用
         await ApplyPendingMigrationsAsync(
             connection,
             schemaName,
             migrationDirectory);
     }
 
-    private async Task EnsureMigrationTableAsync(
+    private static async Task EnsureMigrationTableAsync(
         NpgsqlConnection connection,
         string schemaName)
     {
-        await using var command = connection.CreateCommand();
+        await using var command =
+            connection.CreateCommand();
 
         command.CommandText = $@"
             CREATE TABLE IF NOT EXISTS
@@ -106,7 +107,7 @@ public class TenantSchemaMigrationRunner :
         await command.ExecuteNonQueryAsync();
     }
 
-    private async Task ApplyPendingMigrationsAsync(
+    private static async Task ApplyPendingMigrationsAsync(
         NpgsqlConnection connection,
         string schemaName,
         string migrationDirectory)
@@ -149,7 +150,10 @@ public class TenantSchemaMigrationRunner :
 
             try
             {
-                await using (var command = connection.CreateCommand())
+                // このMigrationのTransaction内だけ
+                // tenant schemaをsearch_pathの先頭にする
+                await using (var command =
+                    connection.CreateCommand())
                 {
                     command.Transaction = transaction;
 
@@ -159,7 +163,9 @@ public class TenantSchemaMigrationRunner :
                     await command.ExecuteNonQueryAsync();
                 }
 
-                await using (var command = connection.CreateCommand())
+                // Migration SQL実行
+                await using (var command =
+                    connection.CreateCommand())
                 {
                     command.Transaction = transaction;
                     command.CommandText = sql;
@@ -167,7 +173,9 @@ public class TenantSchemaMigrationRunner :
                     await command.ExecuteNonQueryAsync();
                 }
 
-                await using (var command = connection.CreateCommand())
+                // Migration履歴を記録
+                await using (var command =
+                    connection.CreateCommand())
                 {
                     command.Transaction = transaction;
 
