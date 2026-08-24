@@ -37,7 +37,10 @@ namespace Deleuze.Shared.Swagger
 
                 app.UseSwaggerUI(c =>
                 {
-                    c.SwaggerEndpoint("/swagger/v1/swagger.json", $"{title} v1");
+                    // 💡 先頭の '/' を外し、相対パス指定にする (または $"/{cleanBase}/swagger/v1/swagger.json")
+                    // これにより Swagger UI と同じディレクトリ配下の v1/swagger.json を正しく取得できます
+                    c.SwaggerEndpoint("v1/swagger.json", $"{title} v1");
+                    
                     c.RoutePrefix = $"{cleanBase}/swagger";
                 });
             }
