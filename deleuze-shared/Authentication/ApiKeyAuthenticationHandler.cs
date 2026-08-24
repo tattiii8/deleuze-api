@@ -31,37 +31,52 @@ namespace Deleuze.Shared.Authentication
         {
             if (!Request.Headers.TryGetValue("X-Api-Key", out var apiKeyHeaderValues))
             {
+                Logger.LogDebug("[ApiKeyHandler] X-Api-Key header not found in request.");
                 return AuthenticateResult.NoResult();
             }
 
             var apiKey = apiKeyHeaderValues.ToString();
             if (string.IsNullOrWhiteSpace(apiKey))
             {
+                Logger.LogWarning("[ApiKeyHandler] X-Api-Key header is present but empty.");
                 return AuthenticateResult.NoResult();
             }
 
+            var requestUrl = $"{_httpClient.BaseAddress}internal/apikey";
+            Logger.LogInformation("[ApiKeyHandler] Attempting ApiKey validation against AuthService URL: {RequestUrl}", requestUrl);
+
             try
             {
-                // 1. ApiKey を PascalCase で送信 (deleuze-auth の ValidateApiKeyRequest.ApiKey に合わせる)
-                var response = await _httpClient.PostAsJsonAsync("internal/apikey", new { ApiKey = apiKey });
+                // PascalCase (ApiKey) でリクエストを送信
+                var requestPayload = new { ApiKey = apiKey };
+                var response = await _httpClient.PostAsJsonAsync("internal/apikey", requestPayload);
+
+                var responseBody = await response.Content.ReadAsStringAsync();
+                Logger.LogInformation("[ApiKeyHandler] AuthService Response Status: {StatusCode}, Body: {ResponseBody}", 
+                    (int)response.StatusCode, responseBody);
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    Logger.LogWarning("[ApiKeyHandler] AuthService returned status code: {StatusCode}", response.StatusCode);
-                    return AuthenticateResult.Fail("Invalid API Key.");
+                    Logger.LogWarning("[ApiKeyHandler] AuthService returned failure HTTP status: {StatusCode}", response.StatusCode);
+                    return AuthenticateResult.Fail($"AuthService validation failed with HTTP {response.StatusCode}.");
                 }
 
-                var responseBody = await response.Content.ReadAsStringAsync();
-
-                // 2. 大文字小文字を無視してデシリアライズ
                 var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
                 var result = JsonSerializer.Deserialize<ApiKeyValidationResponse>(responseBody, options);
 
-                if (result == null || string.IsNullOrEmpty(result.TenantId))
+                if (result == null)
                 {
-                    Logger.LogWarning("[ApiKeyHandler] ApiKey validation failed or TenantId is null.");
-                    return AuthenticateResult.Fail("Invalid API Key.");
+                    Logger.LogError("[ApiKeyHandler] Failed to deserialize response body to ApiKeyValidationResponse. Body: {ResponseBody}", responseBody);
+                    return AuthenticateResult.Fail("Invalid response payload from AuthService.");
                 }
+
+                if (string.IsNullOrEmpty(result.TenantId))
+                {
+                    Logger.LogWarning("[ApiKeyHandler] ApiKey is invalid or TenantId is null/empty. TenantId: '{TenantId}'", result.TenantId);
+                    return AuthenticateResult.Fail("Invalid API Key or missing TenantId.");
+                }
+
+                Logger.LogInformation("[ApiKeyHandler] Successfully authenticated ApiKey for TenantId: {TenantId}", result.TenantId);
 
                 var claims = new[]
                 {
@@ -77,8 +92,8 @@ namespace Deleuze.Shared.Authentication
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "[ApiKeyHandler] Exception occurred while validating ApiKey with AuthService.");
-                return AuthenticateResult.Fail("Authentication error.");
+                Logger.LogError(ex, "[ApiKeyHandler] Exception occurred while communicating with AuthService at {RequestUrl}", requestUrl);
+                return AuthenticateResult.Fail($"Authentication exception: {ex.Message}");
             }
         }
 
