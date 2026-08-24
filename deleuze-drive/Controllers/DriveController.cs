@@ -10,12 +10,13 @@ using Microsoft.Extensions.Logging;
 using DeleuzeDrive.Data;
 using DeleuzeDrive.Models;
 using DeleuzeDrive.Services;
+using Deleuze.Shared.Constants; // 共通定数を参照
 
 namespace DeleuzeDrive.Controllers
 {
     [ApiController]
     [Authorize]
-    [Route("files")]
+    [Route(ApiRoutes.Drive.Base)] // -> "api/drive"
     public class DriveController : ControllerBase
     {
         private readonly DriveDbContext _dbContext;

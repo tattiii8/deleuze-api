@@ -2,11 +2,12 @@ using System;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using DeleuzeMng.Services;
+using Deleuze.Shared.Constants; // 共通定数を参照
 
 namespace DeleuzeMng.Controllers
 {
     [ApiController]
-    [Route("users")]
+    [Route(ApiRoutes.Management.Users)]
     public class UsersController : ControllerBase
     {
         private readonly ITenantManagementService _tenantService;
@@ -38,14 +39,14 @@ namespace DeleuzeMng.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteUser([FromRoute] string id)
         {
-        if (string.IsNullOrWhiteSpace(id))
-        {
-            return BadRequest("ID は必須です。");
-        }
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                return BadRequest("ID は必須です。");
+            }
 
-        var success = await _tenantService.DeleteUserAsync(id);
-        return success ? Ok() : NotFound("該当するユーザーが見つかりません。");
-       }
+            var success = await _tenantService.DeleteUserAsync(id);
+            return success ? Ok() : NotFound("該当するユーザーが見つかりません。");
+        }
     }
 
     public class RegisterUserRequest

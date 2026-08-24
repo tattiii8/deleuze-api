@@ -4,11 +4,12 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using DeleuzeMng.Services;
 using DeleuzeMng.Models;
+using Deleuze.Shared.Constants; // 共通定数を参照
 
 namespace DeleuzeMng.Controllers
 {
     [ApiController]
-    [Route("tenants")]
+    [Route(ApiRoutes.Management.Tenants)]
     public class TenantsController : ControllerBase
     {
         private readonly ITenantManagementService _tenantService;
@@ -96,7 +97,7 @@ namespace DeleuzeMng.Controllers
             return Ok(new { message = $"Tenant '{tenantId}' migrated successfully across all services." });
         }
 
-        // 💡 追加: マイグレーション履歴を取得するエンドポイント
+        // マイグレーション履歴を取得するエンドポイント
         [HttpGet("{tenantId}/migrations")]
         public async Task<IActionResult> GetMigrations(string tenantId)
         {
@@ -116,7 +117,7 @@ namespace DeleuzeMng.Controllers
             }
         }
 
-        // 💡 追加: ヘルスチェックを実行するエンドポイント
+        // ヘルスチェックを実行するエンドポイント
         [HttpGet("{tenantId}/health")]
         public async Task<IActionResult> CheckHealth(string tenantId)
         {
@@ -136,7 +137,7 @@ namespace DeleuzeMng.Controllers
             }
         }
 
-        // 💡 追加: テナントのステータス変更（一時停止 / 有効化）
+        // テナントのステータス変更（一時停止 / 有効化）
         [HttpPatch("{tenantId}/status")]
         public async Task<IActionResult> UpdateStatus(string tenantId, [FromBody] UpdateStatusRequest request)
         {
@@ -171,7 +172,6 @@ namespace DeleuzeMng.Controllers
         }
     }
 
-    // 追加のリクエストDTO等
     public class UpdateStatusRequest
     {
         public string Status { get; set; } = "active";

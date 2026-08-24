@@ -3,11 +3,12 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using DeleuzeMng.Data;
+using Deleuze.Shared.Constants; // 共通定数を参照
 
 namespace DeleuzeMng.Controllers
 {
     [ApiController]
-    [Route("initialize")] // UsePathBase("/api/mng") と結合して POST /api/mng/initialize になる
+    [Route(ApiRoutes.Management.System + "/initialize")] // -> "api/system/initialize" (または "api/mng/system/initialize")
     public class SystemController : ControllerBase
     {
         private readonly string _authConnString;
