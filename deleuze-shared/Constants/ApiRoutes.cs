@@ -1,41 +1,48 @@
-namespace Deleuze.Shared.Constants;
+using System;
+using System.Net.Http;
+using System.Threading.Tasks;
 
-public static class ApiRoutes
+namespace Deleuze.Shared.Infrastructure
 {
-    // アプリケーション全体のプレフィックス
-    public const string Prefix = "api";
-
-    // OpenID Connect / OAuth2 規格準拠のエンドポイント（ルーティング直下）
-    //public static class Oidc
-    //{
-    //    public const string Base = Prefix + "/auth";
-    //    public const string OpenIdConfig = ".well-known/openid-configuration";
-    //    public const string Jwks = ".well-known/jwks";
-    //    public const string Token = "connect/token";
-    //}
-
-    // Deleuze 独自の業務/リソース API (/api/{service}/internal 形式)
-    public static class Auth
+    public class GenericHttpProvisioningClient : IServiceProvisioningClient
     {
-        public const string Base = Prefix + "/auth";
-        public const string InternalBase = Base + "/internal"; // -> "api/auth/internal"
-        public const string OpenIdConfig = ".well-known/openid-configuration";
-        public const string Jwks = ".well-known/jwks";
-        public const string Token = "connect/token";
-    }
+        private readonly HttpClient _httpClient;
+        private readonly string _internalBasePath;
 
-    public static class Drive
-    {
-        public const string Base = Prefix + "/drive";
-        public const string InternalBase = Base + "/internal"; // -> "api/drive/internal"
-    }
+        // 💡 インターフェースの要件を満たすために ServiceKey を追加
+        public string ServiceKey { get; }
 
-　　public static class Management
-    {
-        public const string Base = Prefix + "/mng";            // -> "api/mng"
+        // 既存のコードとの互換性を保ちたい場合は Alias として残しても OK
+        public string ServiceName => ServiceKey;
 
-        public const string System = Base + "/system";         // -> "api/mng/system"
-        public const string Tenants = Base + "/tenants";       // -> "api/mng/tenants"
-        public const string Users = Base + "/users";           // -> "api/mng/users"
+        public GenericHttpProvisioningClient(HttpClient httpClient, string serviceName, string baseUrl, string internalBasePath)
+        {
+            _httpClient = httpClient;
+            var formattedBaseUrl = baseUrl.EndsWith("/") ? baseUrl : baseUrl + "/";
+            _httpClient.BaseAddress = new Uri(formattedBaseUrl);
+
+            ServiceKey = serviceName;
+
+            // 先頭・末尾のスラッシュを正規化 (例: "api/auth/internal")
+            _internalBasePath = internalBasePath.Trim('/');
+        }
+
+        public async Task ProvisionTenantAsync(string tenantId)
+        {
+            var response = await _httpClient.PostAsync($"{_internalBasePath}/tenants/{tenantId}", null);
+            response.EnsureSuccessStatusCode();
+        }
+
+        public async Task DeprovisionTenantAsync(string tenantId)
+        {
+            var response = await _httpClient.DeleteAsync($"{_internalBasePath}/tenants/{tenantId}");
+            response.EnsureSuccessStatusCode();
+        }
+
+        public async Task MigrateTenantAsync(string tenantId)
+        {
+            var response = await _httpClient.PostAsync($"{_internalBasePath}/tenants/{tenantId}/migrate", null);
+            response.EnsureSuccessStatusCode();
+        }
     }
 }

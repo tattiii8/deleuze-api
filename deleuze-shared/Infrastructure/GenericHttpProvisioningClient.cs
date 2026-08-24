@@ -14,7 +14,7 @@ namespace Deleuze.Shared.Infrastructure
         // 既存のコードとの互換性を保ちたい場合は Alias として残しても OK
         public string ServiceName => ServiceKey;
 
-        public GenericHttpProvisioningClient(HttpClient httpClient, string serviceName, string baseUrl)
+        public GenericHttpProvisioningClient(HttpClient httpClient, string serviceName, string baseUrl, string internalBasePath)
         {
             _httpClient = httpClient;
             var formattedBaseUrl = baseUrl.EndsWith("/") ? baseUrl : baseUrl + "/";
@@ -24,12 +24,21 @@ namespace Deleuze.Shared.Infrastructure
         }
 
         public async Task ProvisionTenantAsync(string tenantId)
-            => await _httpClient.PostAsync($"internal/tenants/{tenantId}", null);
+        {
+            var response = await _httpClient.PostAsync($"internal/tenants/{tenantId}", null);
+            response.EnsureSuccessStatusCode();
+        }
 
         public async Task DeprovisionTenantAsync(string tenantId)
-            => await _httpClient.DeleteAsync($"internal/tenants/{tenantId}");
+        {
+            var response = await _httpClient.DeleteAsync($"internal/tenants/{tenantId}");
+            response.EnsureSuccessStatusCode();
+        }
 
         public async Task MigrateTenantAsync(string tenantId)
-            => await _httpClient.PostAsync($"internal/tenants/{tenantId}/migrate", null);
+        {
+            var response = await _httpClient.PostAsync($"internal/tenants/{tenantId}/migrate", null);
+            response.EnsureSuccessStatusCode();
+        }
     }
 }

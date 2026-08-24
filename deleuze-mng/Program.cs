@@ -59,13 +59,13 @@ builder.Services.AddHttpClient();
 builder.Services.AddTransient<IServiceProvisioningClient>(sp =>
 {
     var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient("AuthProvisioningClient");
-    return new GenericHttpProvisioningClient(httpClient, "auth", authServiceUrl);
+    return new GenericHttpProvisioningClient(httpClient, "auth", authServiceUrl, ApiRoutes.Auth.InternalBase);
 });
 
 builder.Services.AddTransient<IServiceProvisioningClient>(sp =>
 {
     var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient("DriveProvisioningClient");
-    return new GenericHttpProvisioningClient(httpClient, "drive", driveServiceUrl);
+    return new GenericHttpProvisioningClient(httpClient, "drive", driveServiceUrl, ApiRoutes.Drive.InternalBase);
 });
 
 // 3. TenantManagementService の DI 登録
