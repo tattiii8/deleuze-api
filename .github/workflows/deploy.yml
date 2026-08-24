@@ -8,8 +8,9 @@ on:
       - 'deleuze-app/**'
       - 'deleuze-mng/**'
       - 'deleuze-drive/**'
+      - 'deleuze-shared/**' # ★ deleuze-shared の変更も検知対象に追加
       - '.github/workflows/**'
-  workflow_dispatch: # ★ これを追加することで「Run workflow」ボタンが表示されます
+  workflow_dispatch:
 
 env:
   AWS_REGION: ap-northeast-1
@@ -29,10 +30,10 @@ jobs:
       id: filter
       with:
         filters: |
-          auth:  ['deleuze-auth/**']
-          app:   ['deleuze-app/**']
-          mng:   ['deleuze-mng/**']
-          drive: ['deleuze-drive/**']
+          auth:  ['deleuze-auth/**', 'deleuze-shared/**']
+          app:   ['deleuze-app/**', 'deleuze-shared/**']
+          mng:   ['deleuze-mng/**', 'deleuze-shared/**']
+          drive: ['deleuze-drive/**', 'deleuze-shared/**']
 
   build-and-push:
     needs: changes
@@ -62,7 +63,8 @@ jobs:
       if: ${{ needs.changes.outputs.auth == 'true' || github.event_name == 'workflow_dispatch' }}
       uses: docker/build-push-action@v5
       with:
-        context: ./deleuze-auth
+        context: .
+        file: ./deleuze-auth/Dockerfile
         platforms: linux/amd64
         push: true
         tags: |
@@ -73,7 +75,8 @@ jobs:
       if: ${{ needs.changes.outputs.app == 'true' || github.event_name == 'workflow_dispatch' }}
       uses: docker/build-push-action@v5
       with:
-        context: ./deleuze-app
+        context: .
+        file: ./deleuze-app/Dockerfile
         platforms: linux/amd64
         push: true
         tags: |
@@ -84,7 +87,8 @@ jobs:
       if: ${{ needs.changes.outputs.mng == 'true' || github.event_name == 'workflow_dispatch' }}
       uses: docker/build-push-action@v5
       with:
-        context: ./deleuze-mng
+        context: .
+        file: ./deleuze-mng/Dockerfile
         platforms: linux/amd64
         push: true
         tags: |
@@ -95,7 +99,8 @@ jobs:
       if: ${{ needs.changes.outputs.drive == 'true' || github.event_name == 'workflow_dispatch' }}
       uses: docker/build-push-action@v5
       with:
-        context: ./deleuze-drive
+        context: .
+        file: ./deleuze-drive/Dockerfile
         platforms: linux/amd64
         push: true
         tags: |
