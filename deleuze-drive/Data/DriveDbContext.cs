@@ -1,36 +1,46 @@
 using Microsoft.EntityFrameworkCore;
 using DeleuzeDrive.Models;
-using DeleuzeDrive.Services;
+using Deleuze.Shared.Infrastructure;
 using Deleuze.Shared.MultiTenancy;
 
-namespace DeleuzeDrive.Data
+namespace DeleuzeDrive.Data;
+
+public class DriveDbContext : DbContext
 {
-    public class DriveDbContext : DbContext
+    private readonly ITenantProvider _tenantProvider;
+
+    public DriveDbContext(
+        DbContextOptions<DriveDbContext> options,
+        ITenantProvider tenantProvider)
+        : base(options)
     {
-        private readonly ITenantProvider _tenantProvider;
+        _tenantProvider = tenantProvider;
+    }
 
-        public DriveDbContext(DbContextOptions<DriveDbContext> options, ITenantProvider tenantProvider) 
-            : base(options)
-        {
-            _tenantProvider = tenantProvider;
-        }
+    public DbSet<FileMetadata> Files { get; set; }
+    public DbSet<Folder> Folders { get; set; }
 
-        public DbSet<FileMetadata> Files { get; set; }
-        public DbSet<Folder> Folders { get; set; }
+    protected override void OnModelCreating(
+        ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
 
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
+        var tenantId =
+            _tenantProvider.GetTenantId()
+            ?? throw new InvalidOperationException(
+                "Tenant ID is required.");
 
-            // リクエストヘッダーからテナントIDを取得し、スキーマ名 (app_{tenantId}) を動的指定
-            var tenantId = _tenantProvider.GetTenantId();
-            var schemaName = $"app_{tenantId}";
+        var schemaName =
+            TenantSchemaNaming.GetSchemaName(
+                "drive",
+                tenantId);
 
-            modelBuilder.HasDefaultSchema(schemaName);
+        modelBuilder.HasDefaultSchema(schemaName);
 
-            // テーブルマッピングの明示設定
-            modelBuilder.Entity<FileMetadata>().ToTable("Files");
-            modelBuilder.Entity<Folder>().ToTable("Folders");
-        }
+        modelBuilder.Entity<FileMetadata>()
+            .ToTable("Files");
+
+        modelBuilder.Entity<Folder>()
+            .ToTable("Folders");
     }
 }

@@ -42,18 +42,36 @@ builder.Services.AddCors(options =>
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ITenantProvider, JwtTenantProvider>();
 
-// DbContext (PostgreSQL)  
-builder.Services.AddDbContext<DriveDbContext>((sp, options) => {
-    var tenantProvider = sp.GetRequiredService<ITenantProvider>();
-    var tenantId = tenantProvider.GetTenantId();
+// DbContext (PostgreSQL)
+builder.Services.AddDbContext<DriveDbContext>((sp, options) =>
+{
+    var tenantProvider =
+        sp.GetRequiredService<ITenantProvider>();
 
-    var baseConnectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
-                               ?? "Host=deleuze-db;Database=deleuze_drive;Username=postgres;Password=postgres";
+    var tenantId =
+        tenantProvider.GetTenantId()
+        ?? throw new InvalidOperationException(
+            "Tenant ID is required.");
 
-    // テナント ID に応じたスキーマ検索パスを設定
-    var connectionString = $"{baseConnectionString};SearchPath={tenantId},public";
-    options.UseNpgsql(connectionString); 
-    options.ReplaceService<IModelCacheKeyFactory, TenantModelCacheKeyFactory>(); 
+    var baseConnectionString =
+        builder.Configuration.GetConnectionString(
+            "DefaultConnection")
+        ?? "Host=deleuze-db;Database=deleuze_drive;Username=postgres;Password=postgres";
+
+    // drive_{tenantId} のスキーマを使用
+    var schemaName =
+        TenantSchemaNaming.GetSchemaName(
+            "drive",
+            tenantId);
+
+    var connectionString =
+        $"{baseConnectionString};SearchPath={schemaName},public";
+
+    options.UseNpgsql(connectionString);
+
+    options.ReplaceService<
+        IModelCacheKeyFactory,
+        TenantModelCacheKeyFactory>();
 });
 
 // --------------------------------------------------
