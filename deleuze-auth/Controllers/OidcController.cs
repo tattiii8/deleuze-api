@@ -9,7 +9,7 @@ namespace DeleuzeAuth.Controllers
 {
     [ApiController]
     [AllowAnonymous]
-    [Route("")] // OIDC仕様エンドポイントのためルート直下
+    [Route(ApiRoutes.Auth)] // OIDC仕様エンドポイントのためルート直下
     public class OidcController : ControllerBase
     {
         private readonly IUserService _userService;
