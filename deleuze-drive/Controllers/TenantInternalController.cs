@@ -7,7 +7,7 @@ using Deleuze.Shared.Constants; // 共通定数を参照
 namespace DeleuzeDrive.Controllers
 {
     [ApiController]
-    [Authorize]
+    [AllowAnonymous]
     [Route(ApiRoutes.Drive.InternalBase + "/tenants")] // -> "api/drive/internal/tenants"
     public class TenantInternalController : ControllerBase
     {
