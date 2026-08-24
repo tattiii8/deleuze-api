@@ -100,7 +100,7 @@ namespace DeleuzeMng.Controllers
 
             return Ok(new { message = $"Tenant '{tenantId}' migrated successfully across all services." });
         }
-        
+
         [HttpPost("{tenantId}/migrate/{serviceKey}")]
         public async Task<IActionResult> MigrateService(
             string tenantId,
@@ -116,28 +116,18 @@ namespace DeleuzeMng.Controllers
                 return BadRequest("ServiceKey は必須です。");
             }
 
-            try
-            {
-                var success = await _tenantService
-                    .MigrateServiceForTenantAsync(tenantId, serviceKey);
+            var success = await _tenantService
+                .MigrateServiceForTenantAsync(tenantId, serviceKey);
 
-                if (!success)
-                {
-                    return StatusCode(500, new
-                    {
-                        error = $"テナント '{tenantId}' のサービス '{serviceKey}' のマイグレーションに失敗しました。"
-                    });
-                }
-
-                return Ok(new
+            return success
+                ? Ok(new
                 {
                     message = $"Tenant '{tenantId}' service '{serviceKey}' migrated successfully."
+                })
+                : StatusCode(500, new
+                {
+                    error = $"テナント '{tenantId}' のサービス '{serviceKey}' のマイグレーションに失敗しました。"
                 });
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(new { error = ex.Message });
-            }
         }
 
         // マイグレーション履歴を取得するエンドポイント
