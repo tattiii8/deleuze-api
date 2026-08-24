@@ -7,9 +7,9 @@ COPY ["deleuze-auth/deleuze-auth.csproj", "deleuze-auth/"]
 COPY ["deleuze-shared/deleuze-shared.csproj", "deleuze-shared/"]
 RUN dotnet restore "deleuze-auth/deleuze-auth.csproj" -a $TARGETARCH
 
-# 2. ソースコード全体をコピー
-COPY deleuze-shared/ deleuze-shared/
-COPY deleuze-auth/ deleuze-auth/
+# 2. ソースコード全体をコピー (パスの末尾のスラッシュを外して正確な位置に配置)
+COPY deleuze-shared ./deleuze-shared
+COPY deleuze-auth ./deleuze-auth
 
 # 3. ビルド＆パブリッシュ実行
 WORKDIR "/src/deleuze-auth"

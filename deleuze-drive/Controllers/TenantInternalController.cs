@@ -18,11 +18,11 @@ namespace DeleuzeDrive.Controllers
             _migrationService = migrationService;
         }
 
-        [HttpPost("{tenantId}/init")] // -> /api/drive/internal/tenants/{tenantId}/init
-        public async Task<IActionResult> InitializeTenant(string tenantId)
+        [HttpPost("{tenantId}/migrate")] // -> /api/drive/internal/tenants/{tenantId}/migrate
+        public async Task<IActionResult> MigrateTenant(string tenantId)
         {
             await _migrationService.MigrateTenantSchemaAsync(tenantId);
-            return Ok(new { message = $"Tenant {tenantId} initialized successfully." });
+            return Ok(new { message = $"Tenant {tenantId} migrated successfully." });
         }
     }
 }
