@@ -11,5 +11,6 @@
     <PackageReference Include="Npgsql" Version="8.0.4" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.0" />
+    <ProjectReference Include="..\deleuze-shared\deleuze-shared.csproj" />
   </ItemGroup>
 </Project>

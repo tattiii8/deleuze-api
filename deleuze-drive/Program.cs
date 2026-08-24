@@ -1,5 +1,6 @@
 using System;
 using Amazon.S3;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -13,7 +14,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using DeleuzeDrive.Data;
 using DeleuzeDrive.Services;
-using DeleuzeDrive.Authentication;
+using Deleuze.Shared.Authentication;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,10 +31,8 @@ builder.Services.AddDbContext<DriveDbContext>((sp, options) =>
     options.ReplaceService<IModelCacheKeyFactory, TenantModelCacheKeyFactory>();
 });
 
-builder.Services.AddHttpContextAccessor();
-
-// ITenantProvider を JwtTenantProvider に登録
-builder.Services.AddScoped<ITenantProvider, JwtTenantProvider>();
+// Deleuze.Shared の認証・テナントプロバイダー拡張を一括登録
+builder.Services.AddSharedAuthentication();
 
 // SQLファイルベースのマルチテナントマイグレーションサービスの登録
 builder.Services.AddScoped<ITenantMigrationService, TenantMigrationService>();
@@ -70,13 +69,14 @@ builder.Services.AddAuthentication(options =>
     {
         if (context.Request.Headers.ContainsKey("X-Api-Key"))
         {
-            return ApiKeyAuthenticationOptions.DefaultScheme;
+            return "ApiKey";
         }
         return JwtBearerDefaults.AuthenticationScheme;
     };
 })
-.AddScheme<ApiKeyAuthenticationOptions, ApiKeyAuthenticationHandler>(
-    ApiKeyAuthenticationOptions.DefaultScheme, _ => { })
+// Deleuze.Shared 側の ApiKeyAuthenticationHandler を使用
+.AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(
+    "ApiKey", _ => { })
 .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
 {
     options.Authority = authAuthority;
@@ -157,7 +157,7 @@ var app = builder.Build();
 
 app.UseForwardedHeaders();
 
-// 💡 mng サービスと統一：パスベースのプレフィックスを認識
+// パスベースのプレフィックスを認識
 app.UsePathBase("/api/drive");
 
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
