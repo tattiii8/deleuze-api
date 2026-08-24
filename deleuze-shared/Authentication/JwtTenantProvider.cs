@@ -1,6 +1,6 @@
-using System.Security.Claims;
-using Microsoft.AspNetCore.Http;
+using System;
 using Deleuze.Shared.MultiTenancy;
+using Microsoft.AspNetCore.Http;
 
 namespace Deleuze.Shared.Authentication
 {
@@ -18,16 +18,20 @@ namespace Deleuze.Shared.Authentication
             var user = _httpContextAccessor.HttpContext?.User;
             if (user == null)
             {
-                return string.Empty;
+                throw new InvalidOperationException("HttpContext or User is not available.");
             }
 
-            var tenantId = user.FindFirst("tenant_id")?.Value
-                ?? user.FindFirst("tenant")?.Value
-                ?? user.FindFirst("tenantId")?.Value
-                ?? user.FindFirst("TenantId")?.Value
-                ?? user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var tenantId = user.FindFirst("tenant_id")?.Value 
+                        ?? user.FindFirst("tenant")?.Value 
+                        ?? user.FindFirst("tenantId")?.Value 
+                        ?? user.FindFirst("TenantId")?.Value;
 
-            return tenantId ?? string.Empty;
+            if (string.IsNullOrEmpty(tenantId))
+            {
+                throw new InvalidOperationException("Tenant ID claim not found in user principal.");
+            }
+
+            return tenantId;
         }
     }
 }

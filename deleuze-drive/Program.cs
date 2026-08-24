@@ -24,19 +24,25 @@ builder.Logging.AddConsole();
 builder.Logging.SetMinimumLevel(LogLevel.Information); 
 builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning); 
 
-// HttpContextAccessor と ITenantProvider の DI 登録を追加
+// HttpContextAccessor と ITenantProvider の DI 登録
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ITenantProvider, JwtTenantProvider>();
 
 // DbContext (PostgreSQL)  
 builder.Services.AddDbContext<DriveDbContext>((sp, options) => {
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")); 
+    var tenantProvider = sp.GetRequiredService<ITenantProvider>();
+    var tenantId = tenantProvider.GetTenantId();
+
+    var baseConnectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
+                               ?? "Host=deleuze-db;Database=deleuze_drive;Username=postgres;Password=postgres";
+
+    // テナント ID に応じたスキーマ検索パスを設定
+    var connectionString = $"{baseConnectionString};SearchPath={tenantId},public";
+    options.UseNpgsql(connectionString); 
     options.ReplaceService<IModelCacheKeyFactory, TenantModelCacheKeyFactory>(); 
 });
 
-// ★ 重複していた AddSharedAuthentication() は削除（下部の AddAuthentication で一括設定するため）
-
-// SQL 
+// SQL Migration サービス
 builder.Services.AddScoped<ITenantMigrationService, TenantMigrationService>(); 
 
 // AWS S3 Storage Service
