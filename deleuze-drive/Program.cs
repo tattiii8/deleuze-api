@@ -30,8 +30,7 @@ builder.Services.AddDbContext<DriveDbContext>((sp, options) => {
     options.ReplaceService<IModelCacheKeyFactory, TenantModelCacheKeyFactory>(); 
 });
 
-// Deleuze.Shared  
-builder.Services.AddSharedAuthentication(); 
+// ★ 重複していた AddSharedAuthentication() は削除（下部の AddAuthentication で一括設定するため）
 
 // SQL 
 builder.Services.AddScoped<ITenantMigrationService, TenantMigrationService>(); 
@@ -54,7 +53,7 @@ builder.Services.AddHttpClient("AuthService", client => {
     client.BaseAddress = new Uri(baseUrl); 
 });
 
-// SmartAuth (PolicyScheme)  
+// SmartAuth (PolicyScheme) で統合管理
 builder.Services.AddAuthentication(options => {
     options.DefaultScheme = "SmartAuth"; 
     options.DefaultChallengeScheme = "SmartAuth"; 
