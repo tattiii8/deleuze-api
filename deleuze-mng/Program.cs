@@ -15,7 +15,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi.Models;
 using DeleuzeMng.Data;
 using Deleuze.Shared.Constants;
-using Deleuze.Shared.Swagger; // 共通 Swagger 拡張を参照
+using Deleuze.Shared.Swagger;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,6 +23,17 @@ builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.SetMinimumLevel(LogLevel.Information);
 builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
+
+// 💡 1. CORS の登録
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
+});
 
 var authConnectionString = builder.Configuration.GetConnectionString("AuthConnection")
     ?? throw new InvalidOperationException("接続文字列 'AuthConnection' が設定されていません。");
@@ -37,11 +48,9 @@ if (enableMngAuth && string.IsNullOrEmpty(apiSecret))
     throw new InvalidOperationException("認証が有効ですが、環境変数 'MANAGEMENT_API_SECRET' が設定されていません。");
 }
 
-// 💡 マイクロサービス連携用 Client の DI 登録
 builder.Services.AddHttpClient<IServiceProvisioningClient, DriveProvisioningClient>();
 builder.Services.AddHttpClient<DriveProvisioningClient>();
 
-// 💡 Service クライアント辞書の準備と TenantManagementService の DI 登録
 builder.Services.AddScoped<ITenantManagementService>(sp =>
 {
     var client = sp.GetRequiredService<IServiceProvisioningClient>();
@@ -130,8 +139,8 @@ var app = builder.Build();
 
 app.UseForwardedHeaders();
 
-// 💡 削除: UsePathBase は廃止し、コントローラーの Route 属性と Swagger ルーティングで管理
-// app.UsePathBase("/api/mng");
+// 💡 2. パイプライン先頭で CORS を有効化
+app.UseCors();
 
 if (!enableMngAuth)
 {
@@ -141,15 +150,15 @@ if (!enableMngAuth)
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-// 💡 共通拡張メソッド呼び出し（Management のプレフィックス配下へ Swagger UI をマッピング）
-app.UseDeleuzeSwagger(app.Environment, builder.Configuration, ApiRoutes.Management.Tenants, "deleuze-mng API");
+// 💡 3. 正しいベースプレフィックス (ApiRoutes.Management.Base = "api/mng") を指定
+app.UseDeleuzeSwagger(app.Environment, builder.Configuration, ApiRoutes.Management.Base, "deleuze-mng API");
 
 await DbInitializer.EnsureSeedDataAsync(authConnectionString);
 
 // 🔒 トークン検証ミドルウェア
 app.Use(async (context, next) =>
 {
-    // Swagger UI 関連へのアクセスは認証をスキップ (swagger キーワード判定に統一)
+    // 💡 4. パス文字列に "swagger" が含まれていればプレフィックス位置に関わらず認証スキップ
     if (context.Request.Path.Value?.Contains("swagger", StringComparison.OrdinalIgnoreCase) == true)
     {
         await next();

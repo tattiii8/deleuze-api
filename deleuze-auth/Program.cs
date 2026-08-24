@@ -9,9 +9,20 @@ using Microsoft.OpenApi.Models;
 using DeleuzeAuth.Data;
 using DeleuzeAuth.Services;
 using Deleuze.Shared.Constants;
-using Deleuze.Shared.Swagger; // 共通 Swagger 拡張を参照
+using Deleuze.Shared.Swagger;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// 💡 1. CORS ポリシーの登録を追加
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
+});
 
 // 1. データベース・サービスの登録 (DI)
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
@@ -45,7 +56,10 @@ var app = builder.Build();
 
 app.UseForwardedHeaders();
 
-// 💡 共通拡張メソッド呼び出し（api/auth/swagger へ自動マッピング）
+// 💡 2. ミドルウェア パイプラインの先頭で UseCors を適用
+app.UseCors();
+
+// 共通 Swagger 拡張呼び出し（api/auth/swagger へ自動マッピング）
 app.UseDeleuzeSwagger(app.Environment, builder.Configuration, ApiRoutes.Auth.Base, "deleuze-auth API");
 
 // 3. コントローラーへのルーティングを有効化

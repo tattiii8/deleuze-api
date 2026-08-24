@@ -17,7 +17,7 @@ using DeleuzeDrive.Services;
 using Deleuze.Shared.Authentication; 
 using Deleuze.Shared.Constants;
 using Deleuze.Shared.MultiTenancy; 
-using Deleuze.Shared.Swagger; // 共通 Swagger 拡張を参照
+using Deleuze.Shared.Swagger;
 
 var builder = WebApplication.CreateBuilder(args); 
 
@@ -25,6 +25,17 @@ builder.Logging.ClearProviders();
 builder.Logging.AddConsole(); 
 builder.Logging.SetMinimumLevel(LogLevel.Information); 
 builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning); 
+
+// 💡 1. CORS ポリシーの登録を追加
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
+});
 
 // HttpContextAccessor と ITenantProvider の DI 登録
 builder.Services.AddHttpContextAccessor();
@@ -157,7 +168,10 @@ var app = builder.Build();
 
 app.UseForwardedHeaders(); 
 
-// 💡 共通拡張メソッド呼び出し（api/drive/swagger へ自動マッピング）
+// 💡 2. ミドルウェア パイプラインの先頭で UseCors を適用
+app.UseCors();
+
+// 共通 Swagger 拡張呼び出し
 app.UseDeleuzeSwagger(app.Environment, builder.Configuration, ApiRoutes.Drive.Base, "deleuze-drive API");
 
 app.UseAuthentication(); 
