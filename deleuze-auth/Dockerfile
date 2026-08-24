@@ -11,6 +11,15 @@ RUN dotnet restore "deleuze-auth/deleuze-auth.csproj" -a $TARGETARCH
 COPY deleuze-shared ./deleuze-shared
 COPY deleuze-auth ./deleuze-auth
 
+RUN echo "=== GenericHttpProvisioningClient files ===" && \
+    find /src -iname "*GenericHttpProvisioningClient*" -print
+
+RUN echo "=== GenericHttpProvisioningClient definitions ===" && \
+    grep -R -n "class GenericHttpProvisioningClient" /src --include="*.cs" || true
+
+RUN echo "=== Shared csproj ===" && \
+    cat /src/deleuze-shared/deleuze-shared.csproj
+
 # 3. ビルド＆パブリッシュ実行
 WORKDIR "/src/deleuze-auth"
 RUN dotnet publish "deleuze-auth.csproj" -c Release -o /app/publish -a $TARGETARCH --no-restore
