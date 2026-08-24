@@ -12,7 +12,6 @@
     
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.0" />
-    <ProjectReference Include="..\deleuze-shared\deleuze-shared.csproj" />
   </ItemGroup>
 
 </Project>
