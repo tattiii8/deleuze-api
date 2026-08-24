@@ -53,9 +53,9 @@ builder.Services.AddSingleton<IAmazonS3>(_ =>
     )); 
 builder.Services.AddScoped<IStorageService, S3StorageService>(); 
 
-// deleuze-auth  
+// deleuze-auth (内部通信用エンドポイント)
 var authAuthority = builder.Configuration["AUTH_INTERNAL_URL"] 
-    ?? "http://192.168.8.112:5001/api/auth"; 
+    ?? "http://deleuze-auth:8080/api/auth"; 
 
 // deleuze-auth API HttpClient  
 builder.Services.AddHttpClient("AuthService", client => {
@@ -157,7 +157,19 @@ app.UseForwardedHeaders();
 
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true)) 
 {
-    app.UseSwagger(); 
+    app.UseSwagger(c =>
+    {
+        c.PreSerializeFilters.Add((swaggerDoc, httpReq) =>
+        {
+            var host = httpReq.Host.Value;
+            var scheme = httpReq.Scheme;
+            swaggerDoc.Servers = new System.Collections.Generic.List<OpenApiServer>
+            {
+                new OpenApiServer { Url = $"{scheme}://{host}" }
+            };
+        });
+    }); 
+
     app.UseSwaggerUI(c => 
     { 
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "deleuze-drive API v1"); 
