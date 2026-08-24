@@ -1,46 +1,91 @@
+using System;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authentication;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace Deleuze.Shared.Authentication;
-
-public class ApiKeyAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
+namespace Deleuze.Shared.Authentication
 {
-    private const string ApiKeyHeaderName = "X-Api-Key";
-    private readonly IConfiguration _configuration;
-
-    public ApiKeyAuthenticationHandler(
-        IOptionsMonitor<AuthenticationSchemeOptions> options,
-        ILoggerFactory logger,
-        UrlEncoder encoder,
-        IConfiguration configuration) : base(options, logger, encoder) // ★ ISystemClock を削除して3引数化
+    public class ApiKeyAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
     {
-        _configuration = configuration;
-    }
+        private readonly HttpClient _httpClient;
 
-    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
-    {
-        if (!Request.Headers.TryGetValue(ApiKeyHeaderName, out var apiKeyHeaderValues))
+        public ApiKeyAuthenticationHandler(
+            IOptionsMonitor<AuthenticationSchemeOptions> options,
+            ILoggerFactory logger,
+            UrlEncoder encoder,
+            ISystemClock clock,
+            IHttpClientFactory httpClientFactory)
+            : base(options, logger, encoder, clock)
         {
-            return Task.FromResult(AuthenticateResult.Fail("API Key was not provided."));
+            _httpClient = httpClientFactory.CreateClient("AuthService");
         }
 
-        var providedApiKey = apiKeyHeaderValues.FirstOrDefault();
-        var expectedApiKey = _configuration["InternalApiKey"] ?? _configuration["Authentication:ApiKey"];
-
-        if (string.IsNullOrEmpty(providedApiKey) || providedApiKey != expectedApiKey)
+        protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
         {
-            return Task.FromResult(AuthenticateResult.Fail("Invalid API Key."));
+            if (!Request.Headers.TryGetValue("X-Api-Key", out var apiKeyHeaderValues))
+            {
+                return AuthenticateResult.NoResult();
+            }
+
+            var apiKey = apiKeyHeaderValues.ToString();
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                return AuthenticateResult.NoResult();
+            }
+
+            try
+            {
+                // 1. ApiKey を PascalCase で送信 (deleuze-auth の ValidateApiKeyRequest.ApiKey に合わせる)
+                var response = await _httpClient.PostAsJsonAsync("internal/apikey", new { ApiKey = apiKey });
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    Logger.LogWarning("[ApiKeyHandler] AuthService returned status code: {StatusCode}", response.StatusCode);
+                    return AuthenticateResult.Fail("Invalid API Key.");
+                }
+
+                var responseBody = await response.Content.ReadAsStringAsync();
+
+                // 2. 大文字小文字を無視してデシリアライズ
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var result = JsonSerializer.Deserialize<ApiKeyValidationResponse>(responseBody, options);
+
+                if (result == null || string.IsNullOrEmpty(result.TenantId))
+                {
+                    Logger.LogWarning("[ApiKeyHandler] ApiKey validation failed or TenantId is null.");
+                    return AuthenticateResult.Fail("Invalid API Key.");
+                }
+
+                var claims = new[]
+                {
+                    new Claim("tenant_id", result.TenantId),
+                    new Claim(ClaimTypes.NameIdentifier, result.TenantId)
+                };
+
+                var identity = new ClaimsIdentity(claims, Scheme.Name);
+                var principal = new ClaimsPrincipal(identity);
+                var ticket = new AuthenticationTicket(principal, Scheme.Name);
+
+                return AuthenticateResult.Success(ticket);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "[ApiKeyHandler] Exception occurred while validating ApiKey with AuthService.");
+                return AuthenticateResult.Fail("Authentication error.");
+            }
         }
 
-        var claims = new[] { new Claim(ClaimTypes.Name, "InternalService") };
-        var identity = new ClaimsIdentity(claims, Scheme.Name);
-        var principal = new ClaimsPrincipal(identity);
-        var ticket = new AuthenticationTicket(principal, Scheme.Name);
-
-        return Task.FromResult(AuthenticateResult.Success(ticket));
+        private class ApiKeyValidationResponse
+        {
+            [JsonPropertyName("tenantId")]
+            public string? TenantId { get; set; }
+        }
     }
 }
