@@ -32,7 +32,12 @@ builder.Services.AddScoped<ITenantProvider, JwtTenantProvider>();
 builder.Services.AddScoped<ITenantMigrationService, TenantMigrationService>();
 
 // AWS S3 サービスおよび IStorageService の登録
-builder.Services.AddAWSService<IAmazonS3>();
+builder.Services.AddSingleton<IAmazonS3>(_ => 
+    new AmazonS3Client(
+        new Amazon.Runtime.EnvironmentVariablesAWSCredentials(), 
+        Amazon.RegionEndpoint.APNortheast1
+    )
+);
 builder.Services.AddScoped<IStorageService, S3StorageService>();
 
 // deleuze-auth の基本URL
