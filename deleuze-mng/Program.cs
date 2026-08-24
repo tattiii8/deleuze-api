@@ -68,7 +68,7 @@ builder.Services.AddTransient<IServiceProvisioningClient>(sp =>
     return new GenericHttpProvisioningClient(httpClient, "drive", driveServiceUrl, ApiRoutes.Drive.InternalBase);
 });
 
-// 3. TenantManagementService の DI 登録
+
 // 3. TenantManagementService の DI 登録
 builder.Services.AddScoped<ITenantManagementService>(sp =>
 {
