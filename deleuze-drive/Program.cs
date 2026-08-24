@@ -15,6 +15,7 @@ using Microsoft.OpenApi.Models;
 using DeleuzeDrive.Data; 
 using DeleuzeDrive.Services; 
 using Deleuze.Shared.Authentication; 
+using Deleuze.Shared.Infrastructure; 
 using Deleuze.Shared.Constants;
 using Deleuze.Shared.MultiTenancy; 
 using Deleuze.Shared.Swagger;
@@ -55,11 +56,33 @@ builder.Services.AddDbContext<DriveDbContext>((sp, options) => {
     options.ReplaceService<IModelCacheKeyFactory, TenantModelCacheKeyFactory>(); 
 });
 
-// Provisioning サービス 
-builder.Services.AddScoped<ITenantProvisioningService, TenantProvisioningService>();
-// Migration サービス
-builder.Services.AddScoped<ITenantMigrationService, TenantMigrationService>(); 
+// --------------------------------------------------
+// Tenant Schema Provisioning / Migration
+// --------------------------------------------------
 
+builder.Services.AddScoped<TenantSchemaMigrationRunner>(sp =>
+{
+    var connectionString =
+        builder.Configuration.GetConnectionString("DefaultConnection")
+        ?? "Host=deleuze-db;Database=deleuze_drive;Username=postgres;Password=postgres";
+
+    return new TenantSchemaMigrationRunner(connectionString);
+});
+
+builder.Services.AddScoped<ITenantSchemaProvisioner>(
+    sp => sp.GetRequiredService<TenantSchemaMigrationRunner>());
+
+builder.Services.AddScoped<ITenantSchemaMigrator>(
+    sp => sp.GetRequiredService<TenantSchemaMigrationRunner>());
+
+// Drive固有の薄いサービス
+builder.Services.AddScoped<
+    ITenantProvisioningService,
+    TenantProvisioningService>();
+
+builder.Services.AddScoped<
+    ITenantMigrationService,
+    TenantMigrationService>();
 // AWS S3 Storage Service
 builder.Services.AddSingleton<IAmazonS3>(_ => 
     new AmazonS3Client(
