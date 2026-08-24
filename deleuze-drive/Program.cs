@@ -92,6 +92,7 @@ builder.Services.AddAuthentication(options => {
     }; 
 })
 // Deleuze.Shared ApiKeyAuthenticationHandler  
+Console.WriteLine($"[DeleuzeDrive] authAuthority = {authAuthority}");
 .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>( 
     "ApiKey", _ => { }) 
 .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options => {
