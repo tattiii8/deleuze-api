@@ -15,6 +15,7 @@ using Microsoft.OpenApi.Models;
 using DeleuzeDrive.Data; 
 using DeleuzeDrive.Services; 
 using Deleuze.Shared.Authentication; 
+using Deleuze.Shared.MultiTenancy; 
 
 var builder = WebApplication.CreateBuilder(args); 
 
