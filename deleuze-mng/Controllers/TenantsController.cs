@@ -100,6 +100,45 @@ namespace DeleuzeMng.Controllers
 
             return Ok(new { message = $"Tenant '{tenantId}' migrated successfully across all services." });
         }
+        
+        [HttpPost("{tenantId}/migrate/{serviceKey}")]
+        public async Task<IActionResult> MigrateService(
+            string tenantId,
+            string serviceKey)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId))
+            {
+                return BadRequest("テナントIDが無効です。");
+            }
+
+            if (string.IsNullOrWhiteSpace(serviceKey))
+            {
+                return BadRequest("ServiceKey は必須です。");
+            }
+
+            try
+            {
+                var success = await _tenantService
+                    .MigrateServiceForTenantAsync(tenantId, serviceKey);
+
+                if (!success)
+                {
+                    return StatusCode(500, new
+                    {
+                        error = $"テナント '{tenantId}' のサービス '{serviceKey}' のマイグレーションに失敗しました。"
+                    });
+                }
+
+                return Ok(new
+                {
+                    message = $"Tenant '{tenantId}' service '{serviceKey}' migrated successfully."
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+        }
 
         // マイグレーション履歴を取得するエンドポイント
         [HttpGet("{tenantId}/migrations")]
