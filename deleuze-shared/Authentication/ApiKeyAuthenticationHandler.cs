@@ -40,13 +40,17 @@ namespace Deleuze.Shared.Authentication
                 return AuthenticateResult.NoResult();
             }
 
-            var requestUrl = $"{_httpClient.BaseAddress}internal/apikey";
+            // 💡 修正: 正しいプレフィックス /api/auth/internal/apikey を指定
+            // BaseAddress が "http://192.168.8.112:5001/" の場合でも "api/auth/internal/apikey" と結合されて正しくリクエストされます
+            const string relativePath = "api/auth/internal/apikey";
+
+            var requestUrl = new Uri(_httpClient.BaseAddress!, relativePath);
             Logger.LogInformation("[ApiKeyHandler] Attempting ApiKey validation against AuthService URL: {RequestUrl}", requestUrl);
 
             try
             {
                 var requestPayload = new { ApiKey = apiKey };
-                var response = await _httpClient.PostAsJsonAsync("internal/apikey", requestPayload);
+                var response = await _httpClient.PostAsJsonAsync(relativePath, requestPayload);
 
                 var responseBody = await response.Content.ReadAsStringAsync();
                 Logger.LogInformation("[ApiKeyHandler] AuthService Response Status: {StatusCode}, Body: {ResponseBody}", 
