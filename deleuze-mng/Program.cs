@@ -69,9 +69,11 @@ builder.Services.AddTransient<IServiceProvisioningClient>(sp =>
 });
 
 // 3. TenantManagementService の DI 登録
+// 3. TenantManagementService の DI 登録
 builder.Services.AddScoped<ITenantManagementService>(sp =>
 {
     var clients = sp.GetRequiredService<IEnumerable<IServiceProvisioningClient>>();
+    var logger = sp.GetRequiredService<ILogger<TenantManagementService>>();
 
     var serviceClients = new Dictionary<string, Func<string, Task<bool>>>();
     var disableServiceClients = new Dictionary<string, Func<string, Task<bool>>>();
@@ -103,7 +105,8 @@ builder.Services.AddScoped<ITenantManagementService>(sp =>
         authConnectionString, 
         serviceClients, 
         disableServiceClients,
-        migrateServiceClients
+        migrateServiceClients,
+        logger
     );
 });
 

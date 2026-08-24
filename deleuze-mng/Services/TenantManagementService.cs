@@ -5,8 +5,10 @@ using System.Threading.Tasks;
 using DeleuzeMng.Models;
 using Dapper;
 using Npgsql;
+using Microsoft.Extensions.Logging;
 
 namespace DeleuzeMng.Services;
+
 
 public class TenantManagementService : ITenantManagementService
 {
@@ -15,19 +17,22 @@ public class TenantManagementService : ITenantManagementService
     private readonly Dictionary<string, Func<string, Task<bool>>> _serviceClients;
     private readonly Dictionary<string, Func<string, Task<bool>>> _disableServiceClients;
     private readonly Dictionary<string, Func<string, Task<bool>>> _migrateServiceClients;
+    private readonly ILogger<TenantManagementService> _logger;
 
     public TenantManagementService(
         string appConnString,
         string authConnString,
         Dictionary<string, Func<string, Task<bool>>> serviceClients,
         Dictionary<string, Func<string, Task<bool>>> disableServiceClients,
-        Dictionary<string, Func<string, Task<bool>>> migrateServiceClients)
+        Dictionary<string, Func<string, Task<bool>>> migrateServiceClients,
+        ILogger<TenantManagementService> logger)
     {
         _appConnString = appConnString;
         _authConnString = authConnString;
         _serviceClients = serviceClients;
         _disableServiceClients = disableServiceClients;
         _migrateServiceClients = migrateServiceClients;
+        _logger = logger;
     }
 
     private async Task<NpgsqlConnection> OpenAuthConnAsync()
@@ -128,15 +133,33 @@ public class TenantManagementService : ITenantManagementService
         return false;
     }
 
-    public async Task<bool> MigrateAllServicesForTenantAsync(string tenantId)
+    public async Task<TenantMigrationResult> MigrateAllServicesForTenantAsync(string tenantId)
     {
-        bool success = true;
-        foreach (var client in _migrateServiceClients.Values)
+        var result = new TenantMigrationResult();
+
+        foreach (var (serviceName, client) in _migrateServiceClients)
         {
-            try { if (!await client(tenantId)) success = false; }
-            catch { success = false; }
+            try
+            {
+                var ok = await client(tenantId);
+                if (!ok)
+                {
+                    result.FailedServices.Add(serviceName);
+                    _logger.LogWarning(
+                        "テナント {TenantId} のサービス {ServiceName} マイグレーションが失敗しました(戻り値false)。",
+                        tenantId, serviceName);
+                }
+            }
+            catch (Exception ex)
+            {
+                result.FailedServices.Add(serviceName);
+                _logger.LogError(ex,
+                    "テナント {TenantId} のサービス {ServiceName} マイグレーション中に例外が発生しました。",
+                    tenantId, serviceName);
+            }
         }
-        return success;
+
+        return result;
     }
 
     public async Task<IEnumerable<MigrationHistoryDto>> GetTenantMigrationsAsync(string tenantId)

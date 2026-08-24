@@ -10,6 +10,13 @@ namespace DeleuzeMng.Services
     public record MigrationHistoryDto(string MigrationName, string AppliedAt);
     public record HealthCheckResultDto(string DbStatus, string StorageStatus, string Message);
 
+    // 💡 追加: マイグレーション結果（失敗サービス一覧を含む）
+    public class TenantMigrationResult
+    {
+        public bool Success => FailedServices.Count == 0;
+        public List<string> FailedServices { get; } = new();
+    }
+
     public interface ITenantManagementService
     {
         Task<IEnumerable<TenantInfo>> GetTenantsAsync();
@@ -21,8 +28,8 @@ namespace DeleuzeMng.Services
         Task<bool> EnableServiceForTenantAsync(string tenantId, string serviceKey);
         Task<bool> DisableServiceForTenantAsync(string tenantId, string serviceKey);
 
-        // 全サービスに対するマイグレーション実行
-        Task<bool> MigrateAllServicesForTenantAsync(string tenantId);
+        // 全サービスに対するマイグレーション実行（失敗したサービス名を含む結果を返す）
+        Task<TenantMigrationResult> MigrateAllServicesForTenantAsync(string tenantId);
 
         // 💡 追加: マイグレーション履歴の取得
         Task<IEnumerable<MigrationHistoryDto>> GetTenantMigrationsAsync(string tenantId);

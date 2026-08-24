@@ -87,11 +87,15 @@ namespace DeleuzeMng.Controllers
                 return BadRequest("テナントIDが無効です。");
             }
 
-            var success = await _tenantService.MigrateAllServicesForTenantAsync(tenantId);
+            var result = await _tenantService.MigrateAllServicesForTenantAsync(tenantId);
             
-            if (!success)
+            if (!result.Success)
             {
-                return StatusCode(500, new { error = $"テナント '{tenantId}' のマイグレーション処理中にエラーが発生しました。" });
+                return StatusCode(500, new
+                {
+                    error = $"テナント '{tenantId}' のマイグレーション処理中にエラーが発生しました。",
+                    failedServices = result.FailedServices
+                });
             }
 
             return Ok(new { message = $"Tenant '{tenantId}' migrated successfully across all services." });
