@@ -8,7 +8,7 @@ namespace DeleuzeDrive.Services;
 
 public interface ITenantMigrationService
 {
-    Task MigrateTenantSchemaAsync(string schemaName);
+    Task MigrateTenantSchemaAsync(string tenantId);
 }
 
 public class TenantMigrationService :
@@ -29,7 +29,7 @@ public class TenantMigrationService :
     }
 
     public async Task MigrateTenantSchemaAsync(
-        string schemaName)
+        string tenantId)
     {
         var migrationDirectory =
             Path.Combine(
@@ -37,15 +37,15 @@ public class TenantMigrationService :
                 "DbMigration");
 
         _logger.LogInformation(
-            "Starting migration process for tenant schema: {SchemaName}",
-            schemaName);
+            "Starting migration process for tenant: {TenantId}",
+            tenantId);
 
         await _migrator.MigrateAsync(
-            schemaName,
+            tenantId,
             migrationDirectory);
 
         _logger.LogInformation(
-            "Completed migration process for tenant schema: {SchemaName}",
-            schemaName);
+            "Completed migration process for tenant: {TenantId}",
+            tenantId);
     }
 }

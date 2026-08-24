@@ -66,7 +66,9 @@ builder.Services.AddScoped<TenantSchemaManager>(sp =>
         builder.Configuration.GetConnectionString("DefaultConnection")
         ?? "Host=deleuze-db;Database=deleuze_drive;Username=postgres;Password=postgres";
 
-    return new TenantSchemaManager(connectionString);
+    return new TenantSchemaManager(
+        connectionString,
+        "drive");
 });
 
 builder.Services.AddScoped<ITenantSchemaProvisioner>(

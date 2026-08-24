@@ -1,8 +1,6 @@
-using System;
 using System.IO;
 using System.Threading.Tasks;
 using Deleuze.Shared.Infrastructure;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -10,7 +8,7 @@ namespace DeleuzeDrive.Services;
 
 public interface ITenantProvisioningService
 {
-    Task ProvisionTenantSchemaAsync(string schemaName);
+    Task ProvisionTenantSchemaAsync(string tenantId);
 }
 
 public class TenantProvisioningService :
@@ -31,7 +29,7 @@ public class TenantProvisioningService :
     }
 
     public async Task ProvisionTenantSchemaAsync(
-        string schemaName)
+        string tenantId)
     {
         var migrationDirectory =
             Path.Combine(
@@ -39,15 +37,15 @@ public class TenantProvisioningService :
                 "DbMigration");
 
         _logger.LogInformation(
-            "Starting provisioning process for tenant schema: {SchemaName}",
-            schemaName);
+            "Starting provisioning process for tenant: {TenantId}",
+            tenantId);
 
         await _provisioner.ProvisionAsync(
-            schemaName,
+            tenantId,
             migrationDirectory);
 
         _logger.LogInformation(
-            "Completed provisioning process for tenant schema: {SchemaName}",
-            schemaName);
+            "Completed provisioning process for tenant: {TenantId}",
+            tenantId);
     }
 }

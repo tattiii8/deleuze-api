@@ -12,18 +12,29 @@ public class TenantSchemaManager :
     ITenantSchemaMigrator
 {
     private readonly string _connectionString;
+    private readonly string _serviceName;
 
-    public TenantSchemaManager(string connectionString)
+    public TenantSchemaManager(
+        string connectionString,
+        string serviceName)
     {
-        _connectionString = connectionString
+        _connectionString =
+            connectionString
             ?? throw new ArgumentNullException(nameof(connectionString));
+
+        _serviceName =
+            serviceName
+            ?? throw new ArgumentNullException(nameof(serviceName));
     }
 
     public async Task ProvisionAsync(
-        string schemaName,
+        string tenantId,
         string migrationDirectory)
     {
-        ValidateSchemaName(schemaName);
+        var schemaName =
+            TenantSchemaNaming.GetSchemaName(
+                _serviceName,
+                tenantId);
 
         await using var connection =
             new NpgsqlConnection(_connectionString);
@@ -52,10 +63,13 @@ public class TenantSchemaManager :
     }
 
     public async Task MigrateAsync(
-        string schemaName,
+        string tenantId,
         string migrationDirectory)
     {
-        ValidateSchemaName(schemaName);
+        var schemaName =
+            TenantSchemaNaming.GetSchemaName(
+                _serviceName,
+                tenantId);
 
         await using var connection =
             new NpgsqlConnection(_connectionString);
@@ -150,7 +164,6 @@ public class TenantSchemaManager :
 
             try
             {
-                // このMigrationのTransaction内だけ
                 // tenant schemaをsearch_pathの先頭にする
                 await using (var command =
                     connection.CreateCommand())
@@ -276,26 +289,5 @@ public class TenantSchemaManager :
         return (bool)(
             await command.ExecuteScalarAsync()
             ?? false);
-    }
-
-    private static void ValidateSchemaName(
-        string schemaName)
-    {
-        if (string.IsNullOrWhiteSpace(schemaName))
-        {
-            throw new ArgumentException(
-                "Schema name is required.",
-                nameof(schemaName));
-        }
-
-        if (!schemaName.All(c =>
-                char.IsLetterOrDigit(c) ||
-                c == '_' ||
-                c == '-'))
-        {
-            throw new ArgumentException(
-                $"Invalid schema name: {schemaName}",
-                nameof(schemaName));
-        }
     }
 }
