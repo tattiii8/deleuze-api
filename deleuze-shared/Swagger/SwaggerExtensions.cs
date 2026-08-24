@@ -22,29 +22,23 @@ namespace Deleuze.Shared.Swagger
             {
                 var cleanBase = serviceBaseRoute.Trim('/');
 
-                // 1. JSON (swagger.json) の配信エンドポイントを api/{service}/swagger 配下に合わせる
                 app.UseSwagger(c =>
                 {
                     c.RouteTemplate = $"{cleanBase}/swagger/{{documentName}}/swagger.json";
 
                     c.PreSerializeFilters.Add((swaggerDoc, httpReq) =>
                     {
-                        var host = httpReq.Host.Value;
-                        var scheme = httpReq.Scheme;
+                        // 💡 "http://..." に固定されず、ブラウザが現在アクセスしているホストとスキーム(https)をそのまま引き継ぐ設定
                         swaggerDoc.Servers = new System.Collections.Generic.List<OpenApiServer>
                         {
-                            new OpenApiServer { Url = $"{scheme}://{host}" }
+                            new OpenApiServer { Url = "/" }
                         };
                     });
                 });
 
-                // 2. Swagger UI (HTML画面) の設定
                 app.UseSwaggerUI(c =>
                 {
-                    // JSON の相対パス (index.html から見た同階層の v1/swagger.json)
                     c.SwaggerEndpoint("v1/swagger.json", $"{title} v1");
-                    
-                    // UI のアクセス URL (例: api/auth/swagger)
                     c.RoutePrefix = $"{cleanBase}/swagger";
                 });
             }
