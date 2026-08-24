@@ -43,8 +43,9 @@ var app = builder.Build();
 
 app.UseForwardedHeaders();
 
-// Nginx 経由のサブパス設定 (`/api/auth`)
-app.UsePathBase("/api/auth");
+// 💡 削除: コントローラー側で ApiRoutes (例: "api/auth/internal") を直接定義しているため、
+// UsePathBase を指定すると Swagger やルーティングでパスが重複する原因になります。
+// app.UsePathBase("/api/auth");
 
 // Swagger UI
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("EnableSwagger", true))
@@ -53,19 +54,18 @@ if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Ena
     {
         c.PreSerializeFilters.Add((swaggerDoc, httpReq) =>
         {
-            var pathBase = string.IsNullOrEmpty(httpReq.PathBase.Value)
-                 ? "/api/auth"
-                 : httpReq.PathBase.Value;
+            var host = httpReq.Host.Value;
+            var scheme = httpReq.Scheme;
             swaggerDoc.Servers = new System.Collections.Generic.List<OpenApiServer>
             {
-                new OpenApiServer { Url = pathBase }
+                new OpenApiServer { Url = $"{scheme}://{host}" }
             };
         });
     });
 
     app.UseSwaggerUI(c =>
     {
-        c.SwaggerEndpoint("v1/swagger.json", "deleuze-auth API v1");
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "deleuze-auth API v1");
         c.RoutePrefix = "swagger";
     });
 }
