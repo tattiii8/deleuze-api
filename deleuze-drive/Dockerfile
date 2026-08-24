@@ -10,7 +10,7 @@ COPY ["deleuze-drive/deleuze-drive.csproj", "deleuze-drive/"]
 COPY ["deleuze-shared/deleuze-shared.csproj", "deleuze-shared/"]
 RUN dotnet restore "deleuze-drive/deleuze-drive.csproj"
 
-# 2. 両方のソースコードをコピー (これで Deleuze.Shared が参照可能になります)
+# 2. 両方のソースコードをコピー
 COPY deleuze-shared/ deleuze-shared/
 COPY deleuze-drive/ deleuze-drive/
 
@@ -25,5 +25,6 @@ FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
 
-COPY deleuze-drive/DbMigration/ ./DbMigration/
+# build ステージ上のパスから直にコピー
+COPY --from=build /src/deleuze-drive/DbMigration ./DbMigration
 ENTRYPOINT ["dotnet", "deleuze-drive.dll"]
