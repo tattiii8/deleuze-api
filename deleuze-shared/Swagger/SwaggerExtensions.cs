@@ -22,8 +22,11 @@ namespace Deleuze.Shared.Swagger
             {
                 var cleanBase = serviceBaseRoute.Trim('/');
 
+                // 1. JSON (swagger.json) の配信エンドポイントを api/{service}/swagger 配下に合わせる
                 app.UseSwagger(c =>
                 {
+                    c.RouteTemplate = $"{cleanBase}/swagger/{{documentName}}/swagger.json";
+
                     c.PreSerializeFilters.Add((swaggerDoc, httpReq) =>
                     {
                         var host = httpReq.Host.Value;
@@ -35,12 +38,13 @@ namespace Deleuze.Shared.Swagger
                     });
                 });
 
+                // 2. Swagger UI (HTML画面) の設定
                 app.UseSwaggerUI(c =>
                 {
-                    // 💡 先頭の '/' を外し、相対パス指定にする (または $"/{cleanBase}/swagger/v1/swagger.json")
-                    // これにより Swagger UI と同じディレクトリ配下の v1/swagger.json を正しく取得できます
+                    // JSON の相対パス (index.html から見た同階層の v1/swagger.json)
                     c.SwaggerEndpoint("v1/swagger.json", $"{title} v1");
                     
+                    // UI のアクセス URL (例: api/auth/swagger)
                     c.RoutePrefix = $"{cleanBase}/swagger";
                 });
             }
