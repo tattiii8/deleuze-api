@@ -178,7 +178,10 @@ namespace DeleuzeDrive.Controllers
 
         private string? GetAuthenticatedTenantId()
         {
-            return User.FindFirst("tenant_id")?.Value 
+            return User.FindFirst("tenant")?.Value 
+                ?? User.FindFirst("tenant_id")?.Value 
+                ?? User.FindFirst("tenantId")?.Value 
+                ?? User.FindFirst("TenantId")?.Value 
                 ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         }
     }
