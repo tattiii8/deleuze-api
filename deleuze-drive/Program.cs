@@ -66,14 +66,37 @@ builder.Services.AddSingleton<IAmazonS3>(_ =>
     )); 
 builder.Services.AddScoped<IStorageService, S3StorageService>(); 
 
-// deleuze-auth (内部通信用エンドポイント)
-var authAuthority = builder.Configuration["AUTH_INTERNAL_URL"] 
-    ?? "http://deleuze-auth:8080/api/auth"; 
+// deleuze-auth 
+// --------------------------------------------------
+// DeleuzeAuth URL
+// --------------------------------------------------
+
+// Docker内部からDeleuzeAuthへアクセスするURL
+var authInternalUrl =
+    builder.Configuration["AUTH_INTERNAL_URL"]
+    ?? "http://192.168.8.112:5001/api/auth";
+
+// JWTのAuthority
+// Discovery / JWKS取得に使用
+var authAuthority =
+    builder.Configuration["AUTH_AUTHORITY"]
+    ?? authInternalUrl;
+
+Console.WriteLine(
+    $"[DeleuzeDrive] Auth Internal URL = {authInternalUrl}");
+
+Console.WriteLine(
+    $"[DeleuzeDrive] Auth Authority = {authAuthority}");
 
 // deleuze-auth API HttpClient  
-builder.Services.AddHttpClient("AuthService", client => {
-    var baseUrl = authAuthority.EndsWith("/") ? authAuthority : authAuthority + "/"; 
-    client.BaseAddress = new Uri(baseUrl); 
+builder.Services.AddHttpClient("AuthService", client =>
+{
+    var baseUrl =
+        authInternalUrl.EndsWith("/")
+            ? authInternalUrl
+            : authInternalUrl + "/";
+
+    client.BaseAddress = new Uri(baseUrl);
 });
 
 // SmartAuth (PolicyScheme) で統合管理
@@ -92,21 +115,60 @@ builder.Services.AddAuthentication(options => {
     }; 
 })
 // Deleuze.Shared ApiKeyAuthenticationHandler  
-Console.WriteLine($"[DeleuzeDrive] authAuthority = {authAuthority}");
+
 .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>( 
     "ApiKey", _ => { }) 
-.AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options => {
-    options.Authority = authAuthority; 
-    options.RequireHttpsMetadata = false; 
-    options.TokenValidationParameters = new TokenValidationParameters 
-    { 
-        ValidateIssuer = false, 
-        ValidateAudience = false, 
-        ValidateLifetime = true, 
-        ValidateIssuerSigningKey = true, 
-        ClockSkew = TimeSpan.Zero 
-    }; 
-});
+.AddJwtBearer(
+    JwtBearerDefaults.AuthenticationScheme,
+    options =>
+    {
+        options.Authority = authAuthority;
+
+        options.RequireHttpsMetadata = false;
+
+        options.TokenValidationParameters =
+            new TokenValidationParameters
+            {
+                ValidateIssuer = false,
+                ValidateAudience = false,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ClockSkew = TimeSpan.Zero
+            };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnAuthenticationFailed = context =>
+            {
+                Console.WriteLine(
+                    $"[DeleuzeDrive][JWT] Authentication FAILED: {context.Exception}");
+
+                return Task.CompletedTask;
+            },
+
+            OnTokenValidated = context =>
+            {
+                Console.WriteLine(
+                    "[DeleuzeDrive][JWT] Token VALIDATED");
+
+                foreach (var claim in context.Principal!.Claims)
+                {
+                    Console.WriteLine(
+                        $"[DeleuzeDrive][JWT] Claim: {claim.Type} = {claim.Value}");
+                }
+
+                return Task.CompletedTask;
+            },
+
+            OnChallenge = context =>
+            {
+                Console.WriteLine(
+                    $"[DeleuzeDrive][JWT] Challenge: {context.Error} / {context.ErrorDescription}");
+
+                return Task.CompletedTask;
+            }
+        };
+    });
 
 builder.Services.AddControllers(); 
 builder.Services.AddEndpointsApiExplorer(); 
