@@ -47,7 +47,6 @@ namespace Deleuze.Shared.Authentication
 
             try
             {
-                // PascalCase (ApiKey) でリクエストを送信
                 var requestPayload = new { ApiKey = apiKey };
                 var response = await _httpClient.PostAsJsonAsync("internal/apikey", requestPayload);
 
@@ -78,8 +77,11 @@ namespace Deleuze.Shared.Authentication
 
                 Logger.LogInformation("[ApiKeyHandler] Successfully authenticated ApiKey for TenantId: {TenantId}", result.TenantId);
 
+                // クレーム記法の違いを吸収するため同値の複数パターンを生成
                 var claims = new[]
                 {
+                    new Claim("tenantId", result.TenantId),
+                    new Claim("TenantId", result.TenantId),
                     new Claim("tenant_id", result.TenantId),
                     new Claim(ClaimTypes.NameIdentifier, result.TenantId)
                 };
