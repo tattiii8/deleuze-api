@@ -21,7 +21,7 @@ namespace DeleuzeAuth.Controllers
             _tokenGenerator = tokenGenerator;
         }
 
-        [HttpGet(ApiRoutes.Oidc.OpenIdConfig)]
+        [HttpGet(ApiRoutes.Auth.OpenIdConfig)]
         public IActionResult GetOpenIdConfiguration()
         {
             var externalUrl = (Environment.GetEnvironmentVariable("AUTH_EXTERNAL_URL") ?? "https://deleuze.lesure.net/api/auth").TrimEnd('/');
@@ -34,13 +34,13 @@ namespace DeleuzeAuth.Controllers
             });
         }
 
-        [HttpGet(ApiRoutes.Oidc.Jwks)]
+        [HttpGet(ApiRoutes.Auth.Jwks)]
         public IActionResult GetJwks()
         {
             return Ok(_tokenGenerator.GetJwks());
         }
 
-        [HttpPost(ApiRoutes.Oidc.Token)]
+        [HttpPost(ApiRoutes.Auth.Token)]
         [Consumes("application/x-www-form-urlencoded")]
         public async Task<IActionResult> ConnectToken([FromForm] TokenRequest request)
         {
