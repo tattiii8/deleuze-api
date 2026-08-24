@@ -14,6 +14,7 @@ using Microsoft.OpenApi.Models;
 using DeleuzeMng.Data;
 using Deleuze.Shared.Constants;
 using Deleuze.Shared.Infrastructure;
+using IServiceProvisioningClient = Deleuze.Shared.Infrastructure.IServiceProvisioningClient;
 using Deleuze.Shared.Swagger;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -66,8 +67,7 @@ builder.Services.AddTransient<IServiceProvisioningClient>(sp =>
     return new GenericHttpProvisioningClient(httpClient, "drive", driveServiceUrl);
 });
 
-// 3. TenantManagementService の登録
-// 💡 3. TenantManagementService の DI 登録
+// 3. TenantManagementService の DI 登録
 builder.Services.AddScoped<ITenantManagementService>(sp =>
 {
     var clients = sp.GetRequiredService<IEnumerable<IServiceProvisioningClient>>();
@@ -78,7 +78,6 @@ builder.Services.AddScoped<ITenantManagementService>(sp =>
 
     foreach (var client in clients)
     {
-        // client.ServiceKey をキーとして Dictionary に登録
         serviceClients[client.ServiceKey] = async (tenantId) =>
         {
             await client.ProvisionTenantAsync(tenantId);
