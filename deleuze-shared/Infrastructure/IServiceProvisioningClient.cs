@@ -2,8 +2,10 @@ namespace Deleuze.Shared.Infrastructure
 {
     public interface IServiceProvisioningClient
     {
+        string ServiceKey { get; }
+
         Task ProvisionTenantAsync(string tenantId);
         Task DeprovisionTenantAsync(string tenantId);
-        Task MigrateTenantAsync(string tenantId); // 追加: マイグレーション用
+        Task MigrateTenantAsync(string tenantId);
     }
 }

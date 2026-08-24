@@ -31,4 +31,11 @@ namespace DeleuzeMng.Models
     {
         public AuthMode AuthMode { get; set; }
     }
+
+    public class TenantAuthDto
+    {
+        public string Id { get; set; } = string.Empty;
+        public int AuthMode { get; set; }
+        public string ApiKey { get; set; } = string.Empty;
+    }
 }

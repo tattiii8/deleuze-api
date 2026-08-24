@@ -4,8 +4,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using DeleuzeMng.Services;
-using DeleuzeMng.Services.Clients;
-using DeleuzeMng.Services.Infrastructure;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -15,6 +13,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi.Models;
 using DeleuzeMng.Data;
 using Deleuze.Shared.Constants;
+using Deleuze.Shared.Infrastructure;
 using Deleuze.Shared.Swagger;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -24,7 +23,7 @@ builder.Logging.AddConsole();
 builder.Logging.SetMinimumLevel(LogLevel.Information);
 builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
 
-// 💡 1. CORS の登録
+// 1. CORS の登録
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
@@ -48,48 +47,63 @@ if (enableMngAuth && string.IsNullOrEmpty(apiSecret))
     throw new InvalidOperationException("認証が有効ですが、環境変数 'MANAGEMENT_API_SECRET' が設定されていません。");
 }
 
-builder.Services.AddHttpClient<IServiceProvisioningClient, DriveProvisioningClient>();
-builder.Services.AddHttpClient<DriveProvisioningClient>();
+// 各サービスのベースURL設定
+var authServiceUrl = builder.Configuration["AUTH_SERVICE_URL"] ?? "http://deleuze-auth:8080/api/auth";
+var driveServiceUrl = builder.Configuration["DRIVE_SERVICE_URL"] ?? "http://deleuze-drive:8080/api/drive";
 
+builder.Services.AddHttpClient();
+
+// 2. GenericHttpProvisioningClient を IServiceProvisioningClient として個別に DI 登録
+builder.Services.AddTransient<IServiceProvisioningClient>(sp =>
+{
+    var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient("AuthProvisioningClient");
+    return new GenericHttpProvisioningClient(httpClient, "auth", authServiceUrl);
+});
+
+builder.Services.AddTransient<IServiceProvisioningClient>(sp =>
+{
+    var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient("DriveProvisioningClient");
+    return new GenericHttpProvisioningClient(httpClient, "drive", driveServiceUrl);
+});
+
+// 3. TenantManagementService の登録
+// 💡 3. TenantManagementService の DI 登録
 builder.Services.AddScoped<ITenantManagementService>(sp =>
 {
-    var client = sp.GetRequiredService<IServiceProvisioningClient>();
-    var driveClient = sp.GetRequiredService<DriveProvisioningClient>();
+    var clients = sp.GetRequiredService<IEnumerable<IServiceProvisioningClient>>();
 
-    var serviceClients = new Dictionary<string, Func<string, Task<bool>>>
+    var serviceClients = new Dictionary<string, Func<string, Task<bool>>>();
+    var disableServiceClients = new Dictionary<string, Func<string, Task<bool>>>();
+    var migrateServiceClients = new Dictionary<string, Func<string, Task<bool>>>();
+
+    foreach (var client in clients)
     {
-        [client.ServiceKey] = async (tenantId) =>
+        // client.ServiceKey をキーとして Dictionary に登録
+        serviceClients[client.ServiceKey] = async (tenantId) =>
         {
-            await client.InitializeTenantAsync(tenantId);
+            await client.ProvisionTenantAsync(tenantId);
             return true;
-        }
-    };
+        };
 
-    var disableServiceClients = new Dictionary<string, Func<string, Task<bool>>>
-    {
-        [client.ServiceKey] = async (tenantId) =>
+        disableServiceClients[client.ServiceKey] = async (tenantId) =>
         {
-            await client.RollbackTenantAsync(tenantId);
+            await client.DeprovisionTenantAsync(tenantId);
             return true;
-        }
-    };
+        };
 
-    var migrateServiceClients = new Dictionary<string, Func<string, Task<bool>>>
-    {
-        [client.ServiceKey] = async (tenantId) =>
+        migrateServiceClients[client.ServiceKey] = async (tenantId) =>
         {
             await client.MigrateTenantAsync(tenantId);
             return true;
-        }
-    };
+        };
+    }
 
     return new TenantManagementService(
         appConnectionString, 
         authConnectionString, 
         serviceClients, 
         disableServiceClients,
-        migrateServiceClients,
-        driveClient
+        migrateServiceClients
     );
 });
 
@@ -139,7 +153,7 @@ var app = builder.Build();
 
 app.UseForwardedHeaders();
 
-// 💡 2. パイプライン先頭で CORS を有効化
+// CORS を有効化
 app.UseCors();
 
 if (!enableMngAuth)
@@ -150,7 +164,7 @@ if (!enableMngAuth)
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-// 💡 3. 正しいベースプレフィックス (ApiRoutes.Management.Base = "api/mng") を指定
+// Swagger 設定
 app.UseDeleuzeSwagger(app.Environment, builder.Configuration, ApiRoutes.Management.Base, "deleuze-mng API");
 
 await DbInitializer.EnsureSeedDataAsync(authConnectionString);
@@ -158,7 +172,6 @@ await DbInitializer.EnsureSeedDataAsync(authConnectionString);
 // 🔒 トークン検証ミドルウェア
 app.Use(async (context, next) =>
 {
-    // 💡 4. パス文字列に "swagger" が含まれていればプレフィックス位置に関わらず認証スキップ
     if (context.Request.Path.Value?.Contains("swagger", StringComparison.OrdinalIgnoreCase) == true)
     {
         await next();
