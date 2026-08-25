@@ -87,7 +87,7 @@ public class InternalAuthController : ControllerBase
     /// テナント用 Auth Schema を作成し、
     /// Tenant Migration を適用します。
     /// </summary>
-    [HttpPost("tenants/{tenantId}/provision")]
+    [HttpPost("tenants/{tenantId}")]
     public async Task<IActionResult> ProvisionTenant(
         string tenantId)
     {
