@@ -27,7 +27,8 @@
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="8.0.2" />
   </ItemGroup>
   <ItemGroup>
-  <ProjectReference Include="..\deleuze-shared\deleuze-shared.csproj" />
+   <ProjectReference Include="..\deleuze-shared\deleuze-shared.csproj" />
+   <ProjectReference Include="..\deleuze-auth\deleuze-auth.csproj" />
   </ItemGroup>
 
 </Project>

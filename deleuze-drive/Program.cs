@@ -1,31 +1,34 @@
-using System;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.HttpOverrides;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi.Models;
-using DeleuzeAuth.Services;
-using Deleuze.Shared.Authentication;
+using System; 
+using Amazon.S3; 
+using Microsoft.AspNetCore.Authentication; 
+using Microsoft.AspNetCore.Authentication.JwtBearer; 
+using Microsoft.AspNetCore.Builder; 
+using Microsoft.AspNetCore.HttpOverrides; 
+using Microsoft.EntityFrameworkCore; 
+using Microsoft.EntityFrameworkCore.Infrastructure; 
+using Microsoft.Extensions.Configuration; 
+using Microsoft.Extensions.DependencyInjection; 
+using Microsoft.Extensions.Hosting; 
+using Microsoft.Extensions.Logging; 
+using Microsoft.IdentityModel.Tokens; 
+using Microsoft.OpenApi.Models; 
+using DeleuzeDrive.Data; 
+using DeleuzeDrive.Services; 
+using DeleuzeDrive.Services.Tenant; 
+using Deleuze.Shared.Authentication; 
+using Deleuze.Shared.Infrastructure; 
 using Deleuze.Shared.Constants;
-using Deleuze.Shared.Infrastructure;
+using Deleuze.Shared.MultiTenancy; 
 using Deleuze.Shared.Swagger;
 
-var builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(args); 
 
-builder.Logging.ClearProviders();
-builder.Logging.AddConsole();
-builder.Logging.SetMinimumLevel(LogLevel.Information);
-builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
+builder.Logging.ClearProviders(); 
+builder.Logging.AddConsole(); 
+builder.Logging.SetMinimumLevel(LogLevel.Information); 
+builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning); 
 
-// ==========================================================
-// CORS
-// ==========================================================
-
+// 💡 1. CORS ポリシーの登録を追加
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
@@ -36,25 +39,55 @@ builder.Services.AddCors(options =>
     });
 });
 
-// ==========================================================
-// Database
-// ==========================================================
+// HttpContextAccessor と ITenantProvider の DI 登録
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ITenantProvider, JwtTenantProvider>();
 
-var connectionString =
-    builder.Configuration.GetConnectionString(
-        "DefaultConnection")
-    ?? throw new InvalidOperationException(
-        "接続文字列 'DefaultConnection' が設定されていません。");
-
-// ==========================================================
-// Tenant Schema Provisioning / Migration / Deprovisioning
-// ==========================================================
-
-builder.Services.AddScoped<TenantSchemaManager>(_ =>
+// DbContext (PostgreSQL)
+builder.Services.AddDbContext<DriveDbContext>((sp, options) =>
 {
+    var tenantProvider =
+        sp.GetRequiredService<ITenantProvider>();
+
+    var tenantId =
+        tenantProvider.GetTenantId()
+        ?? throw new InvalidOperationException(
+            "Tenant ID is required.");
+
+    var baseConnectionString =
+        builder.Configuration.GetConnectionString(
+            "DefaultConnection")
+        ?? "Host=deleuze-db;Database=deleuze_drive;Username=postgres;Password=postgres";
+
+    // drive_{tenantId} のスキーマを使用
+    var schemaName =
+        TenantSchemaNaming.GetSchemaName(
+            "drive",
+            tenantId);
+
+    var connectionString =
+        $"{baseConnectionString};SearchPath={schemaName},public";
+
+    options.UseNpgsql(connectionString);
+
+    options.ReplaceService<
+        IModelCacheKeyFactory,
+        TenantModelCacheKeyFactory>();
+});
+
+// --------------------------------------------------
+// Tenant Schema Provisioning / Migration
+// --------------------------------------------------
+
+builder.Services.AddScoped<TenantSchemaManager>(sp =>
+{
+    var connectionString =
+        builder.Configuration.GetConnectionString("DefaultConnection")
+        ?? "Host=deleuze-db;Database=deleuze_drive;Username=postgres;Password=postgres";
+
     return new TenantSchemaManager(
         connectionString,
-        "auth");
+        "drive");
 });
 
 builder.Services.AddScoped<ITenantSchemaProvisioner>(
@@ -63,10 +96,7 @@ builder.Services.AddScoped<ITenantSchemaProvisioner>(
 builder.Services.AddScoped<ITenantSchemaMigrator>(
     sp => sp.GetRequiredService<TenantSchemaManager>());
 
-builder.Services.AddScoped<ITenantSchemaDeprovisioner>(
-    sp => sp.GetRequiredService<TenantSchemaManager>());
-
-// Auth固有の薄いサービス
+// Drive固有の薄いサービス
 builder.Services.AddScoped<
     ITenantProvisioningService,
     TenantProvisioningService>();
@@ -74,68 +104,71 @@ builder.Services.AddScoped<
 builder.Services.AddScoped<
     ITenantMigrationService,
     TenantMigrationService>();
+// AWS S3 Storage Service
+builder.Services.AddSingleton<IAmazonS3>(_ => 
+    new AmazonS3Client(
+        new Amazon.Runtime.EnvironmentVariablesAWSCredentials(), 
+        Amazon.RegionEndpoint.APNortheast1
+    )); 
+builder.Services.AddScoped<IStorageService, S3StorageService>(); 
 
-builder.Services.AddScoped<
-    ITenantDeprovisioningService,
-    TenantDeprovisioningService>();
+// deleuze-auth 
+// --------------------------------------------------
+// DeleuzeAuth URL
+// --------------------------------------------------
 
-// ==========================================================
-// Auth Service
-// ==========================================================
-
-builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
-
-// ==========================================================
-// Authentication
-// ==========================================================
-
+// Docker内部からDeleuzeAuthへアクセスするURL
 var authInternalUrl =
     builder.Configuration["AUTH_INTERNAL_URL"]
     ?? "http://192.168.8.112:5001/api/auth";
 
+// JWTのAuthority
+// Discovery / JWKS取得に使用
+var authAuthority =
+    builder.Configuration["AUTH_AUTHORITY"]
+    ?? authInternalUrl;
+
 Console.WriteLine(
-    $"[DeleuzeAuth] Internal URL = {authInternalUrl}");
+    $"[DeleuzeDrive] Auth Internal URL = {authInternalUrl}");
 
-// ==========================================================
-// HttpClient
-// ==========================================================
+Console.WriteLine(
+    $"[DeleuzeDrive] Auth Authority = {authAuthority}");
 
-builder.Services.AddHttpClient();
-
-// ==========================================================
-// Authentication
-// ==========================================================
-
-builder.Services.AddAuthentication(options =>
+// deleuze-auth API HttpClient  
+builder.Services.AddHttpClient("AuthService", client =>
 {
-    options.DefaultScheme = "SmartAuth";
-    options.DefaultChallengeScheme = "SmartAuth";
-})
-.AddPolicyScheme(
-    "SmartAuth",
-    "JWT or ApiKey",
-    options =>
-    {
-        options.ForwardDefaultSelector = context =>
-        {
-            if (context.Request.Headers.ContainsKey("X-Api-Key"))
-            {
-                return "ApiKey";
-            }
+    var baseUrl =
+        authInternalUrl.EndsWith("/")
+            ? authInternalUrl
+            : authInternalUrl + "/";
 
-            return JwtBearerDefaults.AuthenticationScheme;
-        };
-    })
-.AddScheme<
-    AuthenticationSchemeOptions,
-    ApiKeyAuthenticationHandler>(
-    "ApiKey",
-    _ => { })
+    client.BaseAddress = new Uri(baseUrl);
+});
+
+// SmartAuth (PolicyScheme) で統合管理
+builder.Services.AddAuthentication(options => {
+    options.DefaultScheme = "SmartAuth"; 
+    options.DefaultChallengeScheme = "SmartAuth"; 
+})
+.AddPolicyScheme("SmartAuth", "JWT or ApiKey", options => {
+    options.ForwardDefaultSelector = context => 
+    { 
+        if (context.Request.Headers.ContainsKey("X-Api-Key")) 
+        { 
+            return "ApiKey"; 
+        } 
+        return JwtBearerDefaults.AuthenticationScheme; 
+    }; 
+})
+// Deleuze.Shared ApiKeyAuthenticationHandler  
+
+.AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>( 
+    "ApiKey", _ => { }) 
 .AddJwtBearer(
     JwtBearerDefaults.AuthenticationScheme,
     options =>
     {
-        options.Authority = authInternalUrl;
+        options.Authority = authAuthority;
 
         options.RequireHttpsMetadata = false;
 
@@ -154,7 +187,7 @@ builder.Services.AddAuthentication(options =>
             OnAuthenticationFailed = context =>
             {
                 Console.WriteLine(
-                    $"[DeleuzeAuth][JWT] Authentication FAILED: {context.Exception}");
+                    $"[DeleuzeDrive][JWT] Authentication FAILED: {context.Exception}");
 
                 return Task.CompletedTask;
             },
@@ -162,12 +195,12 @@ builder.Services.AddAuthentication(options =>
             OnTokenValidated = context =>
             {
                 Console.WriteLine(
-                    "[DeleuzeAuth][JWT] Token VALIDATED");
+                    "[DeleuzeDrive][JWT] Token VALIDATED");
 
                 foreach (var claim in context.Principal!.Claims)
                 {
                     Console.WriteLine(
-                        $"[DeleuzeAuth][JWT] Claim: {claim.Type} = {claim.Value}");
+                        $"[DeleuzeDrive][JWT] Claim: {claim.Type} = {claim.Value}");
                 }
 
                 return Task.CompletedTask;
@@ -176,140 +209,84 @@ builder.Services.AddAuthentication(options =>
             OnChallenge = context =>
             {
                 Console.WriteLine(
-                    $"[DeleuzeAuth][JWT] Challenge: {context.Error} / {context.ErrorDescription}");
+                    $"[DeleuzeDrive][JWT] Challenge: {context.Error} / {context.ErrorDescription}");
 
                 return Task.CompletedTask;
             }
         };
     });
 
-// ==========================================================
-// MVC / Swagger
-// ==========================================================
+builder.Services.AddControllers(); 
+builder.Services.AddEndpointsApiExplorer(); 
 
-builder.Services.AddControllers();
-
-builder.Services.AddEndpointsApiExplorer();
-
-builder.Services.AddSwaggerGen(c =>
-{
-    c.SwaggerDoc(
-        "v1",
-        new OpenApiInfo
-        {
-            Title = "deleuze-auth API",
-            Version = "v1"
-        });
-
-    c.AddSecurityDefinition(
-        "Bearer",
-        new OpenApiSecurityScheme
-        {
-            Description = "deleuze-auth JWT",
-            Name = "Authorization",
-            In = ParameterLocation.Header,
-            Type = SecuritySchemeType.Http,
-            Scheme = "Bearer"
-        });
-
-    c.AddSecurityDefinition(
-        "ApiKey",
-        new OpenApiSecurityScheme
-        {
-            Description = "deleuze-mng X-Api-Key",
-            Name = "X-Api-Key",
-            In = ParameterLocation.Header,
-            Type = SecuritySchemeType.ApiKey
-        });
-
-    c.AddSecurityRequirement(
-        new OpenApiSecurityRequirement
-        {
-            {
-                new OpenApiSecurityScheme
-                {
-                    Reference =
-                        new OpenApiReference
-                        {
-                            Type =
-                                ReferenceType.SecurityScheme,
-                            Id = "Bearer"
-                        }
-                },
-                Array.Empty<string>()
-            },
-            {
-                new OpenApiSecurityScheme
-                {
-                    Reference =
-                        new OpenApiReference
-                        {
-                            Type =
-                                ReferenceType.SecurityScheme,
-                            Id = "ApiKey"
-                        }
-                },
-                Array.Empty<string>()
-            }
-        });
+// Swagger Generator の設定
+builder.Services.AddSwaggerGen(c => {
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "deleuze-drive API", Version = "v1" }); 
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme 
+    { 
+        Description = "deleuze-auth JWT",
+        Name = "Authorization", 
+        In = ParameterLocation.Header, 
+        Type = SecuritySchemeType.Http, 
+        Scheme = "Bearer" 
+    }); 
+    c.AddSecurityDefinition("ApiKey", new OpenApiSecurityScheme 
+    { 
+        Description = "deleuze-mng X-Api-Key",
+        Name = "X-Api-Key", 
+        In = ParameterLocation.Header, 
+        Type = SecuritySchemeType.ApiKey 
+    }); 
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement 
+    { 
+        { 
+            new OpenApiSecurityScheme 
+            { 
+                Reference = new OpenApiReference 
+                { 
+                    Type = ReferenceType.SecurityScheme, 
+                    Id = "Bearer" 
+                } 
+            }, 
+            Array.Empty<string>() 
+        }, 
+        { 
+            new OpenApiSecurityScheme 
+            { 
+                Reference = new OpenApiReference 
+                { 
+                    Type = ReferenceType.SecurityScheme, 
+                    Id = "ApiKey" 
+                } 
+            }, 
+            Array.Empty<string>() 
+        } 
+    }); 
 });
 
-// ==========================================================
 // Forwarded Headers
-// ==========================================================
+builder.Services.Configure<ForwardedHeadersOptions>(options => {
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedPrefix; 
+    options.KnownNetworks.Clear(); 
+    options.KnownProxies.Clear(); 
+});
 
-builder.Services.Configure<ForwardedHeadersOptions>(
-    options =>
-    {
-        options.ForwardedHeaders =
-            ForwardedHeaders.XForwardedFor |
-            ForwardedHeaders.XForwardedProto |
-            ForwardedHeaders.XForwardedPrefix;
+builder.Services.AddHealthChecks().AddDbContextCheck<DriveDbContext>("Database"); 
 
-        options.KnownNetworks.Clear();
-        options.KnownProxies.Clear();
-    });
+var app = builder.Build(); 
 
-// ==========================================================
-// Health Check
-// ==========================================================
+app.UseForwardedHeaders(); 
 
-builder.Services.AddHealthChecks();
-
-// ==========================================================
-// Build
-// ==========================================================
-
-var app = builder.Build();
-
-app.UseForwardedHeaders();
-
+// 💡 2. ミドルウェア パイプラインの先頭で UseCors を適用
 app.UseCors();
 
-// ==========================================================
-// Swagger
-// ==========================================================
+// 共通 Swagger 拡張呼び出し
+app.UseDeleuzeSwagger(app.Environment, builder.Configuration, ApiRoutes.Drive.Base, "deleuze-drive API");
 
-app.UseDeleuzeSwagger(
-    app.Environment,
-    builder.Configuration,
-    ApiRoutes.Auth.Base,
-    "deleuze-auth API");
+app.UseAuthentication(); 
+app.UseAuthorization(); 
 
-// ==========================================================
-// Authentication / Authorization
-// ==========================================================
-
-app.UseAuthentication();
-app.UseAuthorization();
-
-// ==========================================================
-// Controllers
-// ==========================================================
-
-app.MapControllers();
-
-// Health Check
-app.MapHealthChecks("/health");
+app.MapControllers(); 
+app.MapHealthChecks("/health"); 
 
 app.Run();
