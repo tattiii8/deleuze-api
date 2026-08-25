@@ -101,7 +101,7 @@ builder.Services.AddScoped<ITenantManagementService>(sp =>
     }
 
     return new TenantManagementService(
-        ConnectionString,
+        mngConnectionString,
         authConnectionString, 
         serviceClients, 
         disableServiceClients,
