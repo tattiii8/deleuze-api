@@ -1,8 +1,13 @@
-version: '3.8'
+x-db-common: &db-common
+  image: ${POSTGRES_IMAGE}
+  command: ["-c", "log_statement=all"]
+  environment:
+    POSTGRES_USER: ${POSTGRES_USER}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
 
 services:
   deleuze-auth-db:
-    image: 871950640338.dkr.ecr.ap-northeast-1.amazonaws.com/deleuze-db:16-alpine
+    <<: *db-common
     container_name: deleuze-auth-db
     ports:
       - "${AUTH_DB_PORT}:5432"
@@ -10,12 +15,11 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${AUTH_DB_NAME}
-    command: ["-c", "log_statement=all"]
     volumes:
       - deleuze_auth_db_data:/var/lib/postgresql/data
 
   deleuze-mng-db:
-    image: 871950640338.dkr.ecr.ap-northeast-1.amazonaws.com/deleuze-db:16-alpine
+    <<: *db-common
     container_name: deleuze-mng-db
     ports:
       - "${MNG_DB_PORT}:5432"
@@ -23,12 +27,11 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${MNG_DB_NAME}
-    command: ["-c", "log_statement=all"]
     volumes:
       - deleuze_mng_db_data:/var/lib/postgresql/data
 
   deleuze-drive-db:
-    image: 871950640338.dkr.ecr.ap-northeast-1.amazonaws.com/deleuze-drive-db:16-alpine
+    <<: *db-common
     container_name: deleuze-drive-db
     ports:
       - "${DRIVE_DB_PORT}:5432"
@@ -36,7 +39,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${DRIVE_DB_NAME}
-    command: ["-c", "log_statement=all"]
     volumes:
       - deleuze_drive_db_data:/var/lib/postgresql/data
 
