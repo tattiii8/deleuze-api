@@ -11,26 +11,27 @@ namespace DeleuzeMng.Services;
 
 public class TenantManagementService : ITenantManagementService
 {
-    private readonly string _appConnString;
     private readonly string _authConnString;
+
     private readonly Dictionary<string, Func<string, Task<bool>>> _serviceClients;
     private readonly Dictionary<string, Func<string, Task<bool>>> _disableServiceClients;
     private readonly Dictionary<string, Func<string, Task<bool>>> _migrateServiceClients;
+
     private readonly ILogger<TenantManagementService> _logger;
 
     public TenantManagementService(
-        string appConnString,
         string authConnString,
         Dictionary<string, Func<string, Task<bool>>> serviceClients,
         Dictionary<string, Func<string, Task<bool>>> disableServiceClients,
         Dictionary<string, Func<string, Task<bool>>> migrateServiceClients,
         ILogger<TenantManagementService> logger)
     {
-        _appConnString = appConnString;
         _authConnString = authConnString;
+
         _serviceClients = serviceClients;
         _disableServiceClients = disableServiceClients;
         _migrateServiceClients = migrateServiceClients;
+
         _logger = logger;
     }
 
@@ -41,12 +42,10 @@ public class TenantManagementService : ITenantManagementService
         return conn;
     }
 
-    private async Task<NpgsqlConnection> OpenAppConnAsync()
-    {
-        var conn = new NpgsqlConnection(_appConnString);
-        await conn.OpenAsync();
-        return conn;
-    }
+
+    /* ==========================================
+     * テナント管理
+     * ========================================== */
 
     public async Task<IEnumerable<TenantInfo>> GetTenantsAsync()
     {
@@ -62,25 +61,28 @@ public class TenantManagementService : ITenantManagementService
             FROM public.""Tenants"";
             ");
 
-        await using var appConn = await OpenAppConnAsync();
-
-        var schemas = (await appConn.QueryAsync<string>(
-            @"
-            SELECT schema_name
-            FROM information_schema.schemata
-            WHERE schema_name LIKE 'app_%';
-            ")).ToHashSet();
-
+        /*
+         * Schema の存在確認は各サービス側が責任を持つ。
+         *
+         * Management 側では app_{tenantId} 等の
+         * サービスSchemaを直接参照しない。
+         *
+         * 現時点では TenantInfo の services について、
+         * Management 側で保持しているサービス一覧を返す。
+         *
+         * サービス有効状態を正確に管理する場合は、
+         * 将来的に TenantServices 等の管理テーブルを
+         * 使用する。
+         */
         return dtos.Select(dto => new TenantInfo(
             dto.Id,
-            _serviceClients.Keys
-                .Where(k => IsEnabled(schemas, dto.Id, k))
-                .ToList(),
+            _serviceClients.Keys.ToList(),
             dto.AuthMode,
             dto.ApiKey,
             dto.Status
         ));
     }
+
 
     public async Task<TenantInfo?> GetTenantByIdAsync(string tenantId)
     {
@@ -106,22 +108,12 @@ public class TenantManagementService : ITenantManagementService
             return null;
         }
 
-        await using var appConn = await OpenAppConnAsync();
-
-        var schemas = (await appConn.QueryAsync<string>(
-            @"
-            SELECT schema_name
-            FROM information_schema.schemata
-            WHERE schema_name LIKE @Pattern;
-            ",
-            new
-            {
-                Pattern = $"app_{tenantId}%"
-            })).ToHashSet();
-
-        var activeServices = _serviceClients.Keys
-            .Where(k => IsEnabled(schemas, tenantId, k))
-            .ToList();
+        /*
+         * Schema の存在確認は行わない。
+         *
+         * 各サービスのSchemaは各サービス自身が管理する。
+         */
+        var activeServices = _serviceClients.Keys.ToList();
 
         return new TenantInfo(
             dto.Id,
@@ -131,6 +123,7 @@ public class TenantManagementService : ITenantManagementService
             dto.Status
         );
     }
+
 
     public async Task<string?> GetTenantStatusAsync(string tenantId)
     {
@@ -148,14 +141,17 @@ public class TenantManagementService : ITenantManagementService
             });
     }
 
+
     public async Task<bool> CreateTenantAsync(
         string tenantId,
         string name = "")
     {
-        await using var appConn = await OpenAppConnAsync();
-
-        await appConn.ExecuteAsync(
-            $@"CREATE SCHEMA IF NOT EXISTS ""app_{tenantId}"";");
+        /*
+         * Schema の作成は行わない。
+         *
+         * 各サービスが TenantSchemaManager.ProvisionAsync()
+         * を通して自身のSchemaを作成する。
+         */
 
         await using var authConn = await OpenAuthConnAsync();
 
@@ -190,25 +186,34 @@ public class TenantManagementService : ITenantManagementService
         return true;
     }
 
+
     public async Task<bool> DeleteTenantAsync(string tenantId)
     {
-        foreach (var client in _disableServiceClients.Values)
+        /*
+         * サービスSchemaの削除は各サービスに委譲する。
+         *
+         * Management 側では app_{tenantId} 等を
+         * 直接 DROP しない。
+         */
+        foreach (var (serviceName, client) in _disableServiceClients)
         {
             try
             {
                 await client(tenantId);
             }
-            catch
+            catch (Exception ex)
             {
-                // サービス側の削除失敗はテナント削除処理全体を止めない
+                _logger.LogError(
+                    ex,
+                    "テナント {TenantId} のサービス {ServiceName} 削除中にエラーが発生しました。",
+                    tenantId,
+                    serviceName);
             }
         }
 
-        await using var appConn = await OpenAppConnAsync();
-
-        await appConn.ExecuteAsync(
-            $@"DROP SCHEMA IF EXISTS ""app_{tenantId}"" CASCADE;");
-
+        /*
+         * 最後に Management DB の Tenants レコードを削除する。
+         */
         await using var authConn = await OpenAuthConnAsync();
 
         var affectedRows = await authConn.ExecuteAsync(
@@ -224,29 +229,52 @@ public class TenantManagementService : ITenantManagementService
         return affectedRows > 0;
     }
 
+
+    /* ==========================================
+     * テナントサービス管理
+     * ========================================== */
+
     public async Task<bool> EnableServiceForTenantAsync(
         string tenantId,
         string serviceKey)
     {
-        if (_serviceClients.TryGetValue(serviceKey, out var client))
+        if (_serviceClients.TryGetValue(
+                serviceKey,
+                out var client))
         {
             return await client(tenantId);
         }
 
+        _logger.LogWarning(
+            "未対応のサービスキーです: {ServiceKey}",
+            serviceKey);
+
         return false;
     }
+
 
     public async Task<bool> DisableServiceForTenantAsync(
         string tenantId,
         string serviceKey)
     {
-        if (_disableServiceClients.TryGetValue(serviceKey, out var client))
+        if (_disableServiceClients.TryGetValue(
+                serviceKey,
+                out var client))
         {
             return await client(tenantId);
         }
 
+        _logger.LogWarning(
+            "未対応のサービスキーです: {ServiceKey}",
+            serviceKey);
+
         return false;
     }
+
+
+    /* ==========================================
+     * マイグレーション
+     * ========================================== */
 
     public async Task<TenantMigrationResult> MigrateAllServicesForTenantAsync(
         string tenantId)
@@ -283,6 +311,7 @@ public class TenantManagementService : ITenantManagementService
 
         return result;
     }
+
 
     public async Task<bool> MigrateServiceForTenantAsync(
         string tenantId,
@@ -325,12 +354,22 @@ public class TenantManagementService : ITenantManagementService
         }
     }
 
+
+    /* ==========================================
+     * マイグレーション履歴
+     * ========================================== */
+
     public async Task<IEnumerable<MigrationHistoryDto>> GetTenantMigrationsAsync(
         string tenantId)
     {
         return await Task.FromResult(
             Enumerable.Empty<MigrationHistoryDto>());
     }
+
+
+    /* ==========================================
+     * Health Check
+     * ========================================== */
 
     public async Task<HealthCheckResultDto> CheckTenantHealthAsync(
         string tenantId)
@@ -342,6 +381,11 @@ public class TenantManagementService : ITenantManagementService
                 "All services operating normally."));
     }
 
+
+    /* ==========================================
+     * テナントステータス
+     * ========================================== */
+
     public async Task<bool> UpdateTenantStatusAsync(
         string tenantId,
         string status)
@@ -351,8 +395,12 @@ public class TenantManagementService : ITenantManagementService
             return false;
         }
 
-        if (!status.Equals("active", StringComparison.OrdinalIgnoreCase) &&
-            !status.Equals("suspended", StringComparison.OrdinalIgnoreCase))
+        if (!status.Equals(
+                "active",
+                StringComparison.OrdinalIgnoreCase) &&
+            !status.Equals(
+                "suspended",
+                StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogWarning(
                 "不正なテナントステータスです: {Status}",
@@ -361,21 +409,24 @@ public class TenantManagementService : ITenantManagementService
             return false;
         }
 
-        var normalizedStatus = status.ToLowerInvariant();
+        var normalizedStatus =
+            status.ToLowerInvariant();
 
-        await using var conn = await OpenAuthConnAsync();
+        await using var conn =
+            await OpenAuthConnAsync();
 
-        var affectedRows = await conn.ExecuteAsync(
-            @"
-            UPDATE public.""Tenants""
-            SET ""Status"" = @Status
-            WHERE ""Id"" = @TenantId;
-            ",
-            new
-            {
-                TenantId = tenantId,
-                Status = normalizedStatus
-            });
+        var affectedRows =
+            await conn.ExecuteAsync(
+                @"
+                UPDATE public.""Tenants""
+                SET ""Status"" = @Status
+                WHERE ""Id"" = @TenantId;
+                ",
+                new
+                {
+                    TenantId = tenantId,
+                    Status = normalizedStatus
+                });
 
         if (affectedRows == 0)
         {
@@ -389,11 +440,19 @@ public class TenantManagementService : ITenantManagementService
         return true;
     }
 
-    public async Task<string> GenerateApiKeyAsync(string tenantId)
-    {
-        var apiKey = $"key_{Guid.NewGuid():N}";
 
-        await using var conn = await OpenAuthConnAsync();
+    /* ==========================================
+     * API Key
+     * ========================================== */
+
+    public async Task<string> GenerateApiKeyAsync(
+        string tenantId)
+    {
+        var apiKey =
+            $"key_{Guid.NewGuid():N}";
+
+        await using var conn =
+            await OpenAuthConnAsync();
 
         await conn.ExecuteAsync(
             @"
@@ -410,40 +469,54 @@ public class TenantManagementService : ITenantManagementService
         return apiKey;
     }
 
+
+    /* ==========================================
+     * 認証モード
+     * ========================================== */
+
     public async Task<bool> UpdateAuthModeAsync(
         string tenantId,
         int authMode)
     {
-        await using var conn = await OpenAuthConnAsync();
+        await using var conn =
+            await OpenAuthConnAsync();
 
-        var affectedRows = await conn.ExecuteAsync(
-            @"
-            UPDATE public.""Tenants""
-            SET ""AuthMode"" = @AuthMode
-            WHERE ""Id"" = @TenantId;
-            ",
-            new
-            {
-                AuthMode = authMode,
-                TenantId = tenantId
-            });
+        var affectedRows =
+            await conn.ExecuteAsync(
+                @"
+                UPDATE public.""Tenants""
+                SET ""AuthMode"" = @AuthMode
+                WHERE ""Id"" = @TenantId;
+                ",
+                new
+                {
+                    AuthMode = authMode,
+                    TenantId = tenantId
+                });
 
         return affectedRows > 0;
     }
 
+
+    /* ==========================================
+     * ユーザー管理
+     * ========================================== */
+
     public async Task<IEnumerable<UserInfo>> GetUsersAsync()
     {
-        await using var conn = await OpenAuthConnAsync();
+        await using var conn =
+            await OpenAuthConnAsync();
 
-        var users = await conn.QueryAsync<dynamic>(
-            @"
-            SELECT
-                ""Id"",
-                ""LoginId"",
-                ""TenantId"",
-                ""CreatedAt""
-            FROM public.""Users"";
-            ");
+        var users =
+            await conn.QueryAsync<dynamic>(
+                @"
+                SELECT
+                    ""Id"",
+                    ""LoginId"",
+                    ""TenantId"",
+                    ""CreatedAt""
+                FROM public.""Users"";
+                ");
 
         return users.Select(u =>
             new UserInfo(
@@ -453,6 +526,7 @@ public class TenantManagementService : ITenantManagementService
                 u.CreatedAt.ToString("o")));
     }
 
+
     public async Task<bool> RegisterUserAsync(
         string loginId,
         string password,
@@ -461,7 +535,8 @@ public class TenantManagementService : ITenantManagementService
         var passwordHash =
             BCrypt.Net.BCrypt.HashPassword(password);
 
-        await using var conn = await OpenAuthConnAsync();
+        await using var conn =
+            await OpenAuthConnAsync();
 
         const string sql = @"
             INSERT INTO public.""Users""
@@ -490,37 +565,31 @@ public class TenantManagementService : ITenantManagementService
         return true;
     }
 
-    public async Task<bool> DeleteUserAsync(string userId)
+
+    public async Task<bool> DeleteUserAsync(
+        string userId)
     {
-        if (!int.TryParse(userId, out int id))
+        if (!int.TryParse(
+                userId,
+                out int id))
         {
             return false;
         }
 
-        await using var conn = await OpenAuthConnAsync();
+        await using var conn =
+            await OpenAuthConnAsync();
 
-        var affectedRows = await conn.ExecuteAsync(
-            @"
-            DELETE FROM public.""Users""
-            WHERE ""Id"" = @Id;
-            ",
-            new
-            {
-                Id = id
-            });
+        var affectedRows =
+            await conn.ExecuteAsync(
+                @"
+                DELETE FROM public.""Users""
+                WHERE ""Id"" = @Id;
+                ",
+                new
+                {
+                    Id = id
+                });
 
         return affectedRows > 0;
-    }
-
-    private static bool IsEnabled(
-        HashSet<string> schemas,
-        string tenantId,
-        string key)
-    {
-        return key.Equals(
-                   "drive",
-                   StringComparison.OrdinalIgnoreCase)
-            ? schemas.Contains($"app_{tenantId}")
-            : schemas.Contains($"app_{tenantId}_{key}");
     }
 }
