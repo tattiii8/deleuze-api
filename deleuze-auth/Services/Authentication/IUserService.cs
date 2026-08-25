@@ -1,9 +1,19 @@
+using System;
+using System.Threading.Tasks;
+
 namespace DeleuzeAuth.Services.Authentication;
+
+public class AuthenticationResult
+{
+    public bool IsSuccess { get; set; }
+    public Guid LoginId { get; set; }
+    public string ErrorMessage { get; set; } = string.Empty;
+}
 
 public interface IUserService
 {
-    Task<bool> AuthenticateAsync(
+    Task<AuthenticationResult> AuthenticateAsync(
         string tenantId,
-        string loginId,
+        Guid loginId,
         string password);
 }
