@@ -16,6 +16,7 @@ using DeleuzeAuth.Data;
 using DeleuzeAuth.Services;
 using DeleuzeAuth.Services.Authentication;
 using DeleuzeAuth.Services.Tenant;
+using DeleuzeAuth.Services.User;
 
 using Deleuze.Shared.Authentication;
 using Deleuze.Shared.Constants;
@@ -27,7 +28,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.SetMinimumLevel(LogLevel.Information);
-builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
+builder.Logging.AddFilter(
+    "Microsoft.AspNetCore",
+    LogLevel.Warning);
 
 // ==========================================================
 // CORS
@@ -58,18 +61,28 @@ var connectionString =
 // ==========================================================
 //
 // 共通DBへの接続。
-// テナント固有のユーザー情報は auth_{tenantId} Schemaを使用する。
-// 実際のテナントSchemaの切り替えは UserService 側で行う。
+// AuthDbContext は public Schema の Tenants を管理する。
+//
+// Users は共通 public Schema には存在せず、
+// auth_{tenantId} Schema に分離される。
 // ==========================================================
 
-builder.Services.AddDbContext<AuthDbContext>(options =>
-{
-    options.UseNpgsql(connectionString);
-});
+builder.Services.AddDbContext<AuthDbContext>(
+    options =>
+    {
+        options.UseNpgsql(connectionString);
+    });
 
 // ==========================================================
 // Tenant Schema
 // Provisioning / Migration / Deprovisioning
+// ==========================================================
+//
+// TenantSchemaManager は
+//
+//     auth_{tenantId}
+//
+// のSchemaを管理する。
 // ==========================================================
 
 builder.Services.AddScoped<TenantSchemaManager>(_ =>
@@ -80,15 +93,21 @@ builder.Services.AddScoped<TenantSchemaManager>(_ =>
 });
 
 builder.Services.AddScoped<ITenantSchemaProvisioner>(
-    sp => sp.GetRequiredService<TenantSchemaManager>());
+    sp =>
+        sp.GetRequiredService<TenantSchemaManager>());
 
 builder.Services.AddScoped<ITenantSchemaMigrator>(
-    sp => sp.GetRequiredService<TenantSchemaManager>());
+    sp =>
+        sp.GetRequiredService<TenantSchemaManager>());
 
 builder.Services.AddScoped<ITenantSchemaDeprovisioner>(
-    sp => sp.GetRequiredService<TenantSchemaManager>());
+    sp =>
+        sp.GetRequiredService<TenantSchemaManager>());
 
-// Auth固有の薄いサービス
+// ==========================================================
+// Auth固有の薄いTenantサービス
+// ==========================================================
+
 builder.Services.AddScoped<
     ITenantProvisioningService,
     TenantProvisioningService>();
@@ -105,9 +124,9 @@ builder.Services.AddScoped<
 // Authentication Services
 // ==========================================================
 //
-// token/connect で使用する認証サービス。
-// UserService は Auth DB の auth_{tenantId} Schemaから
-// ユーザーを検索する。
+// token/connect で使用する。
+// UserService は tenantId を取得した後、
+// auth_{tenantId} Schema の Users を参照する。
 // ==========================================================
 
 builder.Services.AddScoped<
@@ -123,6 +142,21 @@ builder.Services.AddScoped<IUserService>(sp =>
         connectionString,
         passwordHasher);
 });
+
+// ==========================================================
+// User Management
+// ==========================================================
+//
+// Management API等からのユーザー登録・一覧・削除に使用。
+// ==========================================================
+
+builder.Services.AddScoped<
+    IUserManagementService,
+    UserManagementService>();
+
+// ==========================================================
+// Token Generator
+// ==========================================================
 
 builder.Services.AddSingleton<TokenGenerator>();
 
@@ -157,15 +191,18 @@ builder.Services.AddAuthentication(options =>
     "JWT or ApiKey",
     options =>
     {
-        options.ForwardDefaultSelector = context =>
-        {
-            if (context.Request.Headers.ContainsKey("X-Api-Key"))
+        options.ForwardDefaultSelector =
+            context =>
             {
-                return "ApiKey";
-            }
+                if (context.Request.Headers
+                    .ContainsKey("X-Api-Key"))
+                {
+                    return "ApiKey";
+                }
 
-            return JwtBearerDefaults.AuthenticationScheme;
-        };
+                return JwtBearerDefaults
+                    .AuthenticationScheme;
+            };
     })
 .AddScheme<
     AuthenticationSchemeOptions,
@@ -176,9 +213,11 @@ builder.Services.AddAuthentication(options =>
     JwtBearerDefaults.AuthenticationScheme,
     options =>
     {
-        options.Authority = authInternalUrl;
+        options.Authority =
+            authInternalUrl;
 
-        options.RequireHttpsMetadata = false;
+        options.RequireHttpsMetadata =
+            false;
 
         options.TokenValidationParameters =
             new TokenValidationParameters
@@ -190,38 +229,51 @@ builder.Services.AddAuthentication(options =>
                 ClockSkew = TimeSpan.Zero
             };
 
-        options.Events = new JwtBearerEvents
-        {
-            OnAuthenticationFailed = context =>
+        options.Events =
+            new JwtBearerEvents
             {
-                Console.WriteLine(
-                    $"[DeleuzeAuth][JWT] Authentication FAILED: {context.Exception}");
+                OnAuthenticationFailed =
+                    context =>
+                    {
+                        Console.WriteLine(
+                            $"[DeleuzeAuth][JWT] " +
+                            $"Authentication FAILED: " +
+                            $"{context.Exception}");
 
-                return Task.CompletedTask;
-            },
+                        return Task.CompletedTask;
+                    },
 
-            OnTokenValidated = context =>
-            {
-                Console.WriteLine(
-                    "[DeleuzeAuth][JWT] Token VALIDATED");
+                OnTokenValidated =
+                    context =>
+                    {
+                        Console.WriteLine(
+                            "[DeleuzeAuth][JWT] " +
+                            "Token VALIDATED");
 
-                foreach (var claim in context.Principal!.Claims)
-                {
-                    Console.WriteLine(
-                        $"[DeleuzeAuth][JWT] Claim: {claim.Type} = {claim.Value}");
-                }
+                        foreach (
+                            var claim
+                            in context.Principal!.Claims)
+                        {
+                            Console.WriteLine(
+                                $"[DeleuzeAuth][JWT] " +
+                                $"Claim: {claim.Type} = {claim.Value}");
+                        }
 
-                return Task.CompletedTask;
-            },
+                        return Task.CompletedTask;
+                    },
 
-            OnChallenge = context =>
-            {
-                Console.WriteLine(
-                    $"[DeleuzeAuth][JWT] Challenge: {context.Error} / {context.ErrorDescription}");
+                OnChallenge =
+                    context =>
+                    {
+                        Console.WriteLine(
+                            $"[DeleuzeAuth][JWT] " +
+                            $"Challenge: " +
+                            $"{context.Error} / " +
+                            $"{context.ErrorDescription}");
 
-                return Task.CompletedTask;
-            }
-        };
+                        return Task.CompletedTask;
+                    }
+            };
     });
 
 // ==========================================================
@@ -246,21 +298,37 @@ builder.Services.AddSwaggerGen(c =>
         "Bearer",
         new OpenApiSecurityScheme
         {
-            Description = "deleuze-auth JWT",
-            Name = "Authorization",
-            In = ParameterLocation.Header,
-            Type = SecuritySchemeType.Http,
-            Scheme = "Bearer"
+            Description =
+                "deleuze-auth JWT",
+
+            Name =
+                "Authorization",
+
+            In =
+                ParameterLocation.Header,
+
+            Type =
+                SecuritySchemeType.Http,
+
+            Scheme =
+                "Bearer"
         });
 
     c.AddSecurityDefinition(
         "ApiKey",
         new OpenApiSecurityScheme
         {
-            Description = "deleuze-mng X-Api-Key",
-            Name = "X-Api-Key",
-            In = ParameterLocation.Header,
-            Type = SecuritySchemeType.ApiKey
+            Description =
+                "deleuze-mng X-Api-Key",
+
+            Name =
+                "X-Api-Key",
+
+            In =
+                ParameterLocation.Header,
+
+            Type =
+                SecuritySchemeType.ApiKey
         });
 
     c.AddSecurityRequirement(
@@ -272,22 +340,31 @@ builder.Services.AddSwaggerGen(c =>
                     Reference =
                         new OpenApiReference
                         {
-                            Type = ReferenceType.SecurityScheme,
-                            Id = "Bearer"
+                            Type =
+                                ReferenceType.SecurityScheme,
+
+                            Id =
+                                "Bearer"
                         }
                 },
+
                 Array.Empty<string>()
             },
+
             {
                 new OpenApiSecurityScheme
                 {
                     Reference =
                         new OpenApiReference
                         {
-                            Type = ReferenceType.SecurityScheme,
-                            Id = "ApiKey"
+                            Type =
+                                ReferenceType.SecurityScheme,
+
+                            Id =
+                                "ApiKey"
                         }
                 },
+
                 Array.Empty<string>()
             }
         });
@@ -297,7 +374,8 @@ builder.Services.AddSwaggerGen(c =>
 // Forwarded Headers
 // ==========================================================
 
-builder.Services.Configure<ForwardedHeadersOptions>(
+builder.Services.Configure<
+    ForwardedHeadersOptions>(
     options =>
     {
         options.ForwardedHeaders =
@@ -340,6 +418,7 @@ app.UseDeleuzeSwagger(
 // ==========================================================
 
 app.UseAuthentication();
+
 app.UseAuthorization();
 
 // ==========================================================

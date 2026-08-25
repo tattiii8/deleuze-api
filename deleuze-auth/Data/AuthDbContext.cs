@@ -1,30 +1,65 @@
 using Microsoft.EntityFrameworkCore;
 using DeleuzeAuth.Models;
+using Deleuze.Shared.Infrastructure;
 
 namespace DeleuzeAuth.Data;
 
-public class AuthDbContext : DbContext
+public class TenantAuthDbContext : DbContext
 {
-    public AuthDbContext(
-        DbContextOptions<AuthDbContext> options)
+    private readonly string _tenantId;
+
+    public TenantAuthDbContext(
+        DbContextOptions<TenantAuthDbContext> options,
+        string tenantId)
         : base(options)
     {
+        _tenantId = tenantId;
     }
 
-    public DbSet<Tenant> Tenants { get; set; } = null!;
+    public DbSet<User> Users { get; set; } = null!;
 
     protected override void OnModelCreating(
         ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
 
-        modelBuilder.Entity<Tenant>(entity =>
-        {
-            entity.ToTable("Tenants");
-            entity.HasKey(t => t.Id);
+        var schema =
+            TenantSchemaNaming.GetSchemaName(
+                "auth",
+                _tenantId);
 
-            // ApiKey で検索するので Unique Index を張っておくと良い
-            entity.HasIndex(t => t.ApiKey).IsUnique();
+        modelBuilder.Entity<User>(entity =>
+        {
+            entity.ToTable(
+                "Users",
+                schema);
+
+            entity.HasKey(u => u.Id);
+
+            entity.Property(u => u.LoginId)
+                .HasMaxLength(100)
+                .IsRequired();
+
+            entity.Property(u => u.PasswordHash)
+                .HasMaxLength(255)
+                .IsRequired();
+
+            entity.Property(u => u.TenantId)
+                .HasMaxLength(100)
+                .IsRequired();
+
+            entity.Property(u => u.CreatedAt)
+                .HasDefaultValueSql(
+                    "CURRENT_TIMESTAMP");
+
+            entity.HasIndex(u => u.LoginId)
+                .IsUnique()
+                .HasDatabaseName(
+                    "IX_Users_LoginId");
+
+            entity.HasIndex(u => u.TenantId)
+                .HasDatabaseName(
+                    "IX_Users_TenantId");
         });
     }
 }
