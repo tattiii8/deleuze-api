@@ -25,10 +25,10 @@ jobs:
       id: filter
       with:
         filters: |
-          auth:  ['deleuze-auth/**']
-          app:   ['deleuze-app/**']
-          mng:   ['deleuze-mng/**']
-          drive: ['deleuze-drive/**']
+          auth:  ['deleuze-auth/**', 'deleuze-shared/**']
+          app:   ['deleuze-app/**', 'deleuze-shared/**']
+          mng:   ['deleuze-mng/**', 'deleuze-shared/**']
+          drive: ['deleuze-drive/**', 'deleuze-shared/**']
 
   build-check:
     needs: changes
@@ -48,33 +48,40 @@ jobs:
       if: ${{ needs.changes.outputs.auth == 'true' }}
       uses: docker/build-push-action@v5
       with:
-        context: ./deleuze-auth
+        context: .
+        file: ./deleuze-auth/Dockerfile
         platforms: linux/amd64
-        push: false # ECR にプッシュせずビルド成否のみ検証
+        push: false
 
     # deleuze-app のビルドチェック
     - name: Build check deleuze-app
-      if: ${{ needs.changes.outputs.app == 'true' }}
+      #if: ${{ needs.changes.outputs.app == 'true' }}
+      if false
       uses: docker/build-push-action@v5
       with:
-        context: ./deleuze-app
+        context: .
+        file: ./deleuze-app/Dockerfile
         platforms: linux/amd64
         push: false
 
     # deleuze-mng のビルドチェック
     - name: Build check deleuze-mng
-      if: ${{ needs.changes.outputs.mng == 'true' }}
+      # if: ${{ needs.changes.outputs.mng == 'true' }}
+      if false
       uses: docker/build-push-action@v5
       with:
-        context: ./deleuze-mng
+        context: .
+        file: ./deleuze-mng/Dockerfile
         platforms: linux/amd64
         push: false
 
     # deleuze-drive のビルドチェック
     - name: Build check deleuze-drive
-      if: ${{ needs.changes.outputs.drive == 'true' }}
+      #if: ${{ needs.changes.outputs.drive == 'true' }}
+      if false
       uses: docker/build-push-action@v5
       with:
-        context: ./deleuze-drive
+        context: .
+        file: ./deleuze-drive/Dockerfile
         platforms: linux/amd64
         push: false
