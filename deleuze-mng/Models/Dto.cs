@@ -32,6 +32,13 @@ namespace DeleuzeMng.Models
         public AuthMode AuthMode { get; set; }
     }
 
+    // テナントのステータス変更用
+    // active / suspended
+    public class UpdateTenantStatusRequest
+    {
+        public string Status { get; set; } = string.Empty;
+    }
+
     public class TenantAuthDto
     {
         public string Id { get; set; } = string.Empty;
