@@ -101,7 +101,7 @@ builder.Services.AddScoped<ITenantManagementService>(sp =>
     }
 
     return new TenantManagementService(
-        mngConnectionString,
+        ConnectionString,
         authConnectionString, 
         serviceClients, 
         disableServiceClients,
@@ -118,7 +118,7 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "deleuze-mng API", Version = "v1" });
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "deleuze- API", Version = "v1" });
 
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
