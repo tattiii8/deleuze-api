@@ -11,7 +11,7 @@ namespace DeleuzeMng.Services;
 
 public class TenantManagementService : ITenantManagementService
 {
-    private readonly string _appConnString;
+    private readonly string _mngConnString;
     private readonly string _authConnString;
     private readonly Dictionary<string, Func<string, Task<bool>>> _serviceClients;
     private readonly Dictionary<string, Func<string, Task<bool>>> _disableServiceClients;
@@ -19,14 +19,14 @@ public class TenantManagementService : ITenantManagementService
     private readonly ILogger<TenantManagementService> _logger;
 
     public TenantManagementService(
-        string appConnString,
+        string mngConnString,
         string authConnString,
         Dictionary<string, Func<string, Task<bool>>> serviceClients,
         Dictionary<string, Func<string, Task<bool>>> disableServiceClients,
         Dictionary<string, Func<string, Task<bool>>> migrateServiceClients,
         ILogger<TenantManagementService> logger)
     {
-        _appConnString = appConnString;
+        _mngConnString = mngConnString;
         _authConnString = authConnString;
         _serviceClients = serviceClients;
         _disableServiceClients = disableServiceClients;
@@ -43,7 +43,7 @@ public class TenantManagementService : ITenantManagementService
 
     private async Task<NpgsqlConnection> OpenAppConnAsync()
     {
-        var conn = new NpgsqlConnection(_appConnString);
+        var conn = new NpgsqlConnection(_mngConnString);
         await conn.OpenAsync();
         return conn;
     }

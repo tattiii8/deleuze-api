@@ -38,8 +38,8 @@ builder.Services.AddCors(options =>
 var authConnectionString = builder.Configuration.GetConnectionString("AuthConnection")
     ?? throw new InvalidOperationException("接続文字列 'AuthConnection' が設定されていません。");
 
-var appConnectionString = builder.Configuration.GetConnectionString("AppConnection")
-    ?? throw new InvalidOperationException("接続文字列 'AppConnection' が設定されていません。");
+var mngConnectionString = builder.Configuration.GetConnectionString("MngConnection")
+    ?? throw new InvalidOperationException("接続文字列 'MngConnection' が設定されていません。");
 
 var enableMngAuth = builder.Configuration.GetValue<bool>("ENABLE_MNG_AUTH", true);
 var apiSecret = builder.Configuration["MANAGEMENT_API_SECRET"];
@@ -101,7 +101,7 @@ builder.Services.AddScoped<ITenantManagementService>(sp =>
     }
 
     return new TenantManagementService(
-        appConnectionString, 
+        mngConnectionString,
         authConnectionString, 
         serviceClients, 
         disableServiceClients,
