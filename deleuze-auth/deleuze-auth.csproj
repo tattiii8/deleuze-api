@@ -19,6 +19,11 @@
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.0" />
     <ProjectReference Include="..\deleuze-shared\deleuze-shared.csproj" />
+    <PackageReference Include="Dapper" Version="2.1.66" />
+    <Content Include="DbMigration/**/*.sql">
+     <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+     <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>

@@ -5,27 +5,26 @@ namespace DeleuzeAuth.Data;
 
 public class AuthDbContext : DbContext
 {
-    public AuthDbContext(DbContextOptions<AuthDbContext> options) : base(options) { }
+    public AuthDbContext(
+        DbContextOptions<AuthDbContext> options)
+        : base(options)
+    {
+    }
 
-    public DbSet<User> Users => Set<User>();
-    public DbSet<Tenant> Tenants => Set<Tenant>(); // 👈 追加
+    public DbSet<Tenant> Tenants { get; set; } = null!;
 
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    protected override void OnModelCreating(
+        ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
-        // 認証用テーブルはマルチテナントの隔離スキーマではなく、共通の public スキーマに配置
-        modelBuilder.HasDefaultSchema("public");
 
-        // Tenants テーブルの設定
         modelBuilder.Entity<Tenant>(entity =>
         {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.Id).HasMaxLength(100);
-            entity.Property(e => e.Name).HasMaxLength(255).IsRequired();
-            entity.Property(e => e.ApiKey).HasMaxLength(255);
-            
-            // ApiKey による検索の高速化と重複防止
-            entity.HasIndex(e => e.ApiKey).IsUnique();
+            entity.ToTable("Tenants");
+            entity.HasKey(t => t.Id);
+
+            // ApiKey で検索するので Unique Index を張っておくと良い
+            entity.HasIndex(t => t.ApiKey).IsUnique();
         });
     }
 }

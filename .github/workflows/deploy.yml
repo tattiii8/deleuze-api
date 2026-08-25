@@ -84,7 +84,8 @@ jobs:
           ${{ env.ECR_REGISTRY }}/deleuze-app:${{ github.sha }}
 
     - name: Build and Push deleuze-mng
-      if: ${{ needs.changes.outputs.mng == 'true' || github.event_name == 'workflow_dispatch' }}
+      #if: ${{ needs.changes.outputs.mng == 'true' || github.event_name == 'workflow_dispatch' }}
+      if: false
       uses: docker/build-push-action@v5
       with:
         context: .
