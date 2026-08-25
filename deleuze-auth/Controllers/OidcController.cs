@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using DeleuzeAuth.Services;
+using DeleuzeAuth.Services.Authentication;
 using Deleuze.Shared.Constants;
 
 namespace DeleuzeAuth.Controllers
