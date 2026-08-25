@@ -5,7 +5,6 @@ on:
     branches: [ deleuze-api-v2.0 ]
     paths:
       - 'deleuze-auth/**'
-      - 'deleuze-app/**'
       - 'deleuze-mng/**'
       - 'deleuze-drive/**'
       - 'deleuze-shared/**'
@@ -16,7 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       auth:  ${{ steps.filter.outputs.auth }}
-      app:   ${{ steps.filter.outputs.app }}
       mng:   ${{ steps.filter.outputs.mng }}
       drive: ${{ steps.filter.outputs.drive }}
     steps:
@@ -26,7 +24,6 @@ jobs:
       with:
         filters: |
           auth:  ['deleuze-auth/**', 'deleuze-shared/**']
-          app:   ['deleuze-app/**', 'deleuze-shared/**']
           mng:   ['deleuze-mng/**', 'deleuze-shared/**']
           drive: ['deleuze-drive/**', 'deleuze-shared/**']
 
@@ -50,17 +47,6 @@ jobs:
       with:
         context: .
         file: ./deleuze-auth/Dockerfile
-        platforms: linux/amd64
-        push: false
-
-    # deleuze-app のビルドチェック
-    - name: Build check deleuze-app
-      #if: ${{ needs.changes.outputs.app == 'true' }}
-      if false
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: ./deleuze-app/Dockerfile
         platforms: linux/amd64
         push: false
 
