@@ -4,13 +4,6 @@ using Npgsql;
 
 namespace DeleuzeAuth.Data;
 
-/// <summary>
-/// DeleuzeAuth のDB初期化処理。
-///
-/// テナント固有のSchemaおよびUsersテーブルは
-/// TenantSchemaManagerによってProvisioningする。
-///
-/// このクラスではAuth DBへの接続確認のみを行う。
 /// </summary>
 public static class DbInitializer
 {

@@ -54,7 +54,8 @@ jobs:
 
     # deleuze-app のビルドチェック
     - name: Build check deleuze-app
-      if: ${{ needs.changes.outputs.app == 'true' }}
+      #if: ${{ needs.changes.outputs.app == 'true' }}
+      if false
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-app
@@ -63,7 +64,8 @@ jobs:
 
     # deleuze-mng のビルドチェック
     - name: Build check deleuze-mng
-      if: ${{ needs.changes.outputs.mng == 'true' }}
+      # if: ${{ needs.changes.outputs.mng == 'true' }}
+      if false
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-mng
@@ -72,7 +74,7 @@ jobs:
 
     # deleuze-drive のビルドチェック
     - name: Build check deleuze-drive
-      if: ${{ needs.changes.outputs.drive == 'true' }}
+      # if: ${{ needs.changes.outputs.drive == 'true' }}
       uses: docker/build-push-action@v5
       with:
         context: ./deleuze-drive

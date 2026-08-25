@@ -10,13 +10,11 @@ public interface ITenantMigrationService
     Task MigrateAsync(string tenantId);
 }
 
-public class TenantMigrationService
-    : ITenantMigrationService
+public class TenantMigrationService : ITenantMigrationService
 {
     private readonly ITenantSchemaMigrator _migrator;
 
-    public TenantMigrationService(
-        ITenantSchemaMigrator migrator)
+    public TenantMigrationService(ITenantSchemaMigrator migrator)
     {
         _migrator = migrator;
     }
@@ -25,9 +23,7 @@ public class TenantMigrationService
     {
         if (string.IsNullOrWhiteSpace(tenantId))
         {
-            throw new ArgumentException(
-                "Tenant ID is required.",
-                nameof(tenantId));
+            throw new ArgumentException("tenantId is required.", nameof(tenantId));
         }
 
         await _migrator.MigrateAsync(

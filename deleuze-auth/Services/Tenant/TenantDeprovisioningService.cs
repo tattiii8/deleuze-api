@@ -9,13 +9,11 @@ public interface ITenantDeprovisioningService
     Task DeprovisionAsync(string tenantId);
 }
 
-public class TenantDeprovisioningService
-    : ITenantDeprovisioningService
+public class TenantDeprovisioningService : ITenantDeprovisioningService
 {
     private readonly ITenantSchemaDeprovisioner _deprovisioner;
 
-    public TenantDeprovisioningService(
-        ITenantSchemaDeprovisioner deprovisioner)
+    public TenantDeprovisioningService(ITenantSchemaDeprovisioner deprovisioner)
     {
         _deprovisioner = deprovisioner;
     }
@@ -24,12 +22,9 @@ public class TenantDeprovisioningService
     {
         if (string.IsNullOrWhiteSpace(tenantId))
         {
-            throw new ArgumentException(
-                "Tenant ID is required.",
-                nameof(tenantId));
+            throw new ArgumentException("tenantId is required.", nameof(tenantId));
         }
 
-        await _deprovisioner.DeprovisionAsync(
-            tenantId);
+        await _deprovisioner.DeprovisionAsync(tenantId);
     }
 }

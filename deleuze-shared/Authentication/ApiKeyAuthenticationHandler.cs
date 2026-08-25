@@ -1,3 +1,5 @@
+// deleuze-shared/Authentication/ApiKeyHandler.cs
+
 using System;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -40,8 +42,6 @@ namespace Deleuze.Shared.Authentication
                 return AuthenticateResult.NoResult();
             }
 
-            // 💡 修正: 正しいプレフィックス /api/auth/internal/apikey を指定
-            // BaseAddress が "http://192.168.8.112:5001/" の場合でも "api/auth/internal/apikey" と結合されて正しくリクエストされます
             const string relativePath = "internal/apikey";
 
             var requestUrl = new Uri(_httpClient.BaseAddress!, relativePath);
@@ -53,7 +53,7 @@ namespace Deleuze.Shared.Authentication
                 var response = await _httpClient.PostAsJsonAsync(relativePath, requestPayload);
 
                 var responseBody = await response.Content.ReadAsStringAsync();
-                Logger.LogInformation("[ApiKeyHandler] AuthService Response Status: {StatusCode}, Body: {ResponseBody}", 
+                Logger.LogDebug("[ApiKeyHandler] AuthService Response Status: {StatusCode}, Body: {ResponseBody}",
                     (int)response.StatusCode, responseBody);
 
                 if (!response.IsSuccessStatusCode)
@@ -73,11 +73,7 @@ namespace Deleuze.Shared.Authentication
 
                 var claims = new[]
                 {
-                    new Claim("tenant_id", result.TenantId),
-                    new Claim("tenant", result.TenantId),
-                    new Claim("tenantId", result.TenantId),
-                    new Claim("TenantId", result.TenantId),
-                    new Claim(ClaimTypes.NameIdentifier, result.TenantId)
+                    new Claim(JwtTenantProvider.TenantClaimType, result.TenantId)
                 };
 
                 var identity = new ClaimsIdentity(claims, Scheme.Name);

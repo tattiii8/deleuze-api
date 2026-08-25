@@ -1,10 +1,12 @@
 using System;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 using DeleuzeAuth.Services.Tenant;
 using DeleuzeAuth.Services.User;
+using DeleuzeAuth.Services.ApiKey;
 
 using Deleuze.Shared.Constants;
 
@@ -19,49 +21,126 @@ public class InternalAuthController : ControllerBase
     private readonly ITenantMigrationService _migrationService;
     private readonly ITenantDeprovisioningService _deprovisioningService;
     private readonly IUserManagementService _userManagementService;
+    private readonly IApiKeyService _apiKeyService;
 
     public InternalAuthController(
         ITenantProvisioningService provisioningService,
         ITenantMigrationService migrationService,
         ITenantDeprovisioningService deprovisioningService,
-        IUserManagementService userManagementService)
+        IUserManagementService userManagementService,
+        IApiKeyService apiKeyService)
     {
         _provisioningService = provisioningService;
         _migrationService = migrationService;
         _deprovisioningService = deprovisioningService;
         _userManagementService = userManagementService;
+        _apiKeyService = apiKeyService;
     }
 
     // ==========================================================
-    // Tenant Provisioning
+    // Global User Management (auth_global)
     // ==========================================================
 
-    /// <summary>
-    /// テナント用 Auth Schema を作成し、
-    /// Tenant Migration を適用します。
-    ///
-    /// auth_{tenantId} Schemaが対象です。
-    /// </summary>
-    [HttpPost("tenants/{tenantId}")]
-    public async Task<IActionResult> ProvisionTenant(
-        string tenantId)
+    [HttpPost("global/users")]
+    public async Task<IActionResult> CreateGlobalUser([FromBody] CreateGlobalUserRequest request)
     {
-        if (string.IsNullOrWhiteSpace(tenantId))
+        try
         {
-            return BadRequest(new
+            var user = await _userManagementService.CreateGlobalUserAsync(request);
+            return Ok(user);
+        }
+        catch (DuplicateUserException ex)
+        {
+            return Conflict(new { error = ex.Message });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
             {
-                error = "Tenant ID が指定されていません。"
+                error = "グローバルユーザーの作成に失敗しました。",
+                message = ex.Message
             });
+        }
+    }
+
+    [HttpPost("global/users/{loginId:guid}/apikeys")]
+    public async Task<IActionResult> IssueApiKey(Guid loginId)
+    {
+        try
+        {
+            var apiKeyResult = await _apiKeyService.IssueApiKeyAsync(loginId);
+            return Ok(apiKeyResult);
+        }
+        catch (UserNotFoundException)
+        {
+            return NotFound(new { error = "指定されたユーザーが存在しません。" });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                error = "API Keyの発行に失敗しました。",
+                message = ex.Message
+            });
+        }
+    }
+
+    // ==========================================================
+    // ApiKey Validation
+    // ==========================================================
+
+    [HttpPost("apikey/validate")]
+    public async Task<IActionResult> ValidateApiKey([FromBody] ApiKeyValidationRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request?.ApiKey))
+        {
+            return BadRequest(new { error = "ApiKey が指定されていません。" });
         }
 
         try
         {
-            await _provisioningService.ProvisionAsync(
-                tenantId);
+            var validationResult = await _apiKeyService.ValidateAsync(request.ApiKey);
+
+            if (validationResult == null || !validationResult.IsValid)
+            {
+                return Unauthorized(new { error = "無効または期限切れのApiKeyです。" });
+            }
+
+            return Ok(validationResult);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                error = "ApiKeyの検証に失敗しました。",
+                message = ex.Message
+            });
+        }
+    }
+
+    // ==========================================================
+    // Tenant Provisioning & Migration
+    // ==========================================================
+
+    [HttpPost("tenants/{tenantId}")]
+    public async Task<IActionResult> ProvisionTenant(string tenantId)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId))
+        {
+            return BadRequest(new { error = "tenantId が指定されていません。" });
+        }
+
+        try
+        {
+            await _provisioningService.ProvisionAsync(tenantId);
 
             return Ok(new
             {
-                tenant_id = tenantId,
+                tenantId,
                 service = "auth",
                 schema = $"auth_{tenantId}",
                 status = "provisioned"
@@ -69,46 +148,29 @@ public class InternalAuthController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(
-                StatusCodes.Status500InternalServerError,
-                new
-                {
-                    error =
-                        "テナントのProvisioningに失敗しました。",
-                    message = ex.Message
-                });
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                error = "テナントのProvisioningに失敗しました。",
+                message = ex.Message
+            });
         }
     }
 
-    // ==========================================================
-    // Tenant Migration
-    // ==========================================================
-
-    /// <summary>
-    /// 既存テナントの未適用Migrationを実行します。
-    ///
-    /// auth_{tenantId} Schemaが存在していることを前提とします。
-    /// </summary>
     [HttpPost("tenants/{tenantId}/migrate")]
-    public async Task<IActionResult> MigrateTenant(
-        string tenantId)
+    public async Task<IActionResult> MigrateTenant(string tenantId)
     {
         if (string.IsNullOrWhiteSpace(tenantId))
         {
-            return BadRequest(new
-            {
-                error = "Tenant ID が指定されていません。"
-            });
+            return BadRequest(new { error = "tenantId が指定されていません。" });
         }
 
         try
         {
-            await _migrationService.MigrateAsync(
-                tenantId);
+            await _migrationService.MigrateAsync(tenantId);
 
             return Ok(new
             {
-                tenant_id = tenantId,
+                tenantId,
                 service = "auth",
                 schema = $"auth_{tenantId}",
                 status = "migrated"
@@ -116,46 +178,29 @@ public class InternalAuthController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(
-                StatusCodes.Status500InternalServerError,
-                new
-                {
-                    error =
-                        "テナントのMigrationに失敗しました。",
-                    message = ex.Message
-                });
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                error = "テナントのMigrationに失敗しました。",
+                message = ex.Message
+            });
         }
     }
 
-    // ==========================================================
-    // Tenant Deprovisioning
-    // ==========================================================
-
-    /// <summary>
-    /// テナント用 Auth Schema を削除します。
-    ///
-    /// auth_{tenantId} SchemaをCASCADEで削除します。
-    /// </summary>
     [HttpDelete("tenants/{tenantId}")]
-    public async Task<IActionResult> DeprovisionTenant(
-        string tenantId)
+    public async Task<IActionResult> DeprovisionTenant(string tenantId)
     {
         if (string.IsNullOrWhiteSpace(tenantId))
         {
-            return BadRequest(new
-            {
-                error = "Tenant ID が指定されていません。"
-            });
+            return BadRequest(new { error = "tenantId が指定されていません。" });
         }
 
         try
         {
-            await _deprovisioningService.DeprovisionAsync(
-                tenantId);
+            await _deprovisioningService.DeprovisionAsync(tenantId);
 
             return Ok(new
             {
-                tenant_id = tenantId,
+                tenantId,
                 service = "auth",
                 schema = $"auth_{tenantId}",
                 status = "deprovisioned"
@@ -163,166 +208,100 @@ public class InternalAuthController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(
-                StatusCodes.Status500InternalServerError,
-                new
-                {
-                    error =
-                        "テナントのDeprovisioningに失敗しました。",
-                    message = ex.Message
-                });
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                error = "テナントのDeprovisioningに失敗しました。",
+                message = ex.Message
+            });
         }
     }
 
     // ==========================================================
-    // User Management
+    // Tenant Member & Role Management (auth_{tenantId})
     // ==========================================================
 
-    /// <summary>
-    /// テナントSchemaにユーザーを登録します。
-    /// </summary>
-    [HttpPost("tenants/{tenantId}/users")]
-    public async Task<IActionResult> RegisterUser(
+    [HttpPost("tenants/{tenantId}/members")]
+    public async Task<IActionResult> AddTenantMember(
         string tenantId,
-        [FromBody] RegisterUserRequest request)
+        [FromBody] AddTenantMemberRequest request)
     {
         if (string.IsNullOrWhiteSpace(tenantId))
         {
-            return BadRequest(new
-            {
-                error = "Tenant ID が指定されていません。"
-            });
+            return BadRequest(new { error = "tenantId が指定されていません。" });
         }
 
         try
         {
-            var user =
-                await _userManagementService.RegisterUserAsync(
-                    tenantId,
-                    request);
-
-            return Ok(user);
-        }
-        catch (DuplicateUserException ex)
-        {
-            return Conflict(new
-            {
-                error = ex.Message
-            });
+            var member = await _userManagementService.AddMemberToTenantAsync(tenantId, request);
+            return Ok(member);
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(new
-            {
-                error = ex.Message
-            });
+            return BadRequest(new { error = ex.Message });
         }
         catch (Exception ex)
         {
-            return StatusCode(
-                StatusCodes.Status500InternalServerError,
-                new
-                {
-                    error = "ユーザー登録に失敗しました。",
-                    message = ex.Message
-                });
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                error = "テナントへのメンバー追加に失敗しました。",
+                message = ex.Message
+            });
         }
     }
 
-    /// <summary>
-    /// テナントSchema内のユーザー一覧を取得します。
-    /// </summary>
-    [HttpGet("tenants/{tenantId}/users")]
-    public async Task<IActionResult> GetUsers(
-        string tenantId)
+    [HttpGet("tenants/{tenantId}/members")]
+    public async Task<IActionResult> GetTenantMembers(string tenantId)
     {
         if (string.IsNullOrWhiteSpace(tenantId))
         {
-            return BadRequest(new
-            {
-                error = "Tenant ID が指定されていません。"
-            });
+            return BadRequest(new { error = "tenantId が指定されていません。" });
         }
 
         try
         {
-            var users =
-                await _userManagementService.GetUsersAsync(
-                    tenantId);
-
-            return Ok(users);
-        }
-        catch (ArgumentException ex)
-        {
-            return BadRequest(new
-            {
-                error = ex.Message
-            });
+            var members = await _userManagementService.GetTenantMembersAsync(tenantId);
+            return Ok(members);
         }
         catch (Exception ex)
         {
-            return StatusCode(
-                StatusCodes.Status500InternalServerError,
-                new
-                {
-                    error = "ユーザー一覧の取得に失敗しました。",
-                    message = ex.Message
-                });
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                error = "メンバー一覧の取得に失敗しました。",
+                message = ex.Message
+            });
         }
     }
 
-    /// <summary>
-    /// テナントSchema内のユーザーを削除します。
-    /// </summary>
-    [HttpDelete("tenants/{tenantId}/users/{userId:int}")]
-    public async Task<IActionResult> DeleteUser(
-        string tenantId,
-        int userId)
+    [HttpDelete("tenants/{tenantId}/members/{loginId:guid}")]
+    public async Task<IActionResult> RemoveTenantMember(string tenantId, Guid loginId)
     {
         if (string.IsNullOrWhiteSpace(tenantId))
         {
-            return BadRequest(new
-            {
-                error = "Tenant ID が指定されていません。"
-            });
+            return BadRequest(new { error = "tenantId が指定されていません。" });
         }
 
         try
         {
-            await _userManagementService.DeleteUserAsync(
-                tenantId,
-                userId);
+            await _userManagementService.RemoveMemberFromTenantAsync(tenantId, loginId);
 
             return Ok(new
             {
-                tenant_id = tenantId,
-                user_id = userId,
-                status = "deleted"
+                tenantId,
+                loginId,
+                status = "removed"
             });
         }
         catch (UserNotFoundException)
         {
-            return NotFound(new
-            {
-                error = "指定されたユーザーが存在しません。"
-            });
-        }
-        catch (ArgumentException ex)
-        {
-            return BadRequest(new
-            {
-                error = ex.Message
-            });
+            return NotFound(new { error = "テナント内に該当メンバーが存在しません。" });
         }
         catch (Exception ex)
         {
-            return StatusCode(
-                StatusCodes.Status500InternalServerError,
-                new
-                {
-                    error = "ユーザー削除に失敗しました。",
-                    message = ex.Message
-                });
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                error = "テナントメンバーの削除に失敗しました。",
+                message = ex.Message
+            });
         }
     }
 }

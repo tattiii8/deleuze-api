@@ -10,13 +10,11 @@ public interface ITenantProvisioningService
     Task ProvisionAsync(string tenantId);
 }
 
-public class TenantProvisioningService
-    : ITenantProvisioningService
+public class TenantProvisioningService : ITenantProvisioningService
 {
     private readonly ITenantSchemaProvisioner _provisioner;
 
-    public TenantProvisioningService(
-        ITenantSchemaProvisioner provisioner)
+    public TenantProvisioningService(ITenantSchemaProvisioner provisioner)
     {
         _provisioner = provisioner;
     }
@@ -25,9 +23,7 @@ public class TenantProvisioningService
     {
         if (string.IsNullOrWhiteSpace(tenantId))
         {
-            throw new ArgumentException(
-                "Tenant ID is required.",
-                nameof(tenantId));
+            throw new ArgumentException("tenantId is required.", nameof(tenantId));
         }
 
         await _provisioner.ProvisionAsync(

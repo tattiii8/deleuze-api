@@ -1,3 +1,5 @@
+// deleuze-shared/Authentication/JwtTenantProvider.cs
+
 using System;
 using Deleuze.Shared.MultiTenancy;
 using Microsoft.AspNetCore.Http;
@@ -6,6 +8,8 @@ namespace Deleuze.Shared.Authentication
 {
     public class JwtTenantProvider : ITenantProvider
     {
+        public const string TenantClaimType = "tenantId";
+
         private readonly IHttpContextAccessor _httpContextAccessor;
 
         public JwtTenantProvider(IHttpContextAccessor httpContextAccessor)
@@ -21,10 +25,7 @@ namespace Deleuze.Shared.Authentication
                 throw new InvalidOperationException("HttpContext or User is not available.");
             }
 
-            var tenantId = user.FindFirst("tenant_id")?.Value 
-                        ?? user.FindFirst("tenant")?.Value 
-                        ?? user.FindFirst("tenantId")?.Value 
-                        ?? user.FindFirst("TenantId")?.Value;
+            var tenantId = user.FindFirst(TenantClaimType)?.Value;
 
             if (string.IsNullOrEmpty(tenantId))
             {

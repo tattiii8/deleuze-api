@@ -1,3 +1,5 @@
+// deleuze-shared/Authentication/Authentication/Extension.cs
+
 using System;
 using System.Text;
 using Deleuze.Shared.MultiTenancy;
@@ -14,7 +16,8 @@ namespace Deleuze.Shared.Authentication
     {
         public static IServiceCollection AddDeleuzeAuthentication(this IServiceCollection services, IConfiguration configuration)
         {
-            var jwtSecret = configuration["JWT_SECRET"] ?? "YourSuperSecretKeyHereWhichIsAtLeast32BytesLong!";
+            var jwtSecret = configuration["JWT_SECRET"]
+                ?? throw new InvalidOperationException("JWT_SECRET is not configured.");
             var key = Encoding.UTF8.GetBytes(jwtSecret);
 
             services.AddHttpContextAccessor();
