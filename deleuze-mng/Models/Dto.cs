@@ -21,7 +21,7 @@ namespace DeleuzeMng.Models
         public string ServiceKey { get; set; } = string.Empty;
     }
 
-    // 💡 追加: サービス無効化用のリクエストボディ型
+    // サービス無効化用のリクエストボディ型
     public class DisableServiceRequest
     {
         public string ServiceKey { get; set; } = string.Empty;
@@ -35,7 +35,13 @@ namespace DeleuzeMng.Models
     public class TenantAuthDto
     {
         public string Id { get; set; } = string.Empty;
+
         public int AuthMode { get; set; }
+
         public string ApiKey { get; set; } = string.Empty;
+
+        // テナントの運用ステータス
+        // active / suspended
+        public string Status { get; set; } = "active";
     }
 }

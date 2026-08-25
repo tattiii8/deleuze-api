@@ -9,7 +9,6 @@ using Microsoft.Extensions.Logging;
 
 namespace DeleuzeMng.Services;
 
-
 public class TenantManagementService : ITenantManagementService
 {
     private readonly string _appConnString;
@@ -52,49 +51,141 @@ public class TenantManagementService : ITenantManagementService
     public async Task<IEnumerable<TenantInfo>> GetTenantsAsync()
     {
         await using var conn = await OpenAuthConnAsync();
-        var dtos = await conn.QueryAsync<TenantAuthDto>(@"SELECT ""Id"", ""AuthMode"", ""ApiKey"" FROM public.""Tenants"";");
+
+        var dtos = await conn.QueryAsync<TenantAuthDto>(
+            @"
+            SELECT
+                ""Id"",
+                ""AuthMode"",
+                ""ApiKey"",
+                ""Status""
+            FROM public.""Tenants"";
+            ");
 
         await using var appConn = await OpenAppConnAsync();
+
         var schemas = (await appConn.QueryAsync<string>(
-            @"SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'app_%';")).ToHashSet();
+            @"
+            SELECT schema_name
+            FROM information_schema.schemata
+            WHERE schema_name LIKE 'app_%';
+            ")).ToHashSet();
 
         return dtos.Select(dto => new TenantInfo(
             dto.Id,
-            _serviceClients.Keys.Where(k => IsEnabled(schemas, dto.Id, k)).ToList(),
+            _serviceClients.Keys
+                .Where(k => IsEnabled(schemas, dto.Id, k))
+                .ToList(),
             dto.AuthMode,
-            dto.ApiKey
+            dto.ApiKey,
+            dto.Status
         ));
     }
 
     public async Task<TenantInfo?> GetTenantByIdAsync(string tenantId)
     {
         await using var conn = await OpenAuthConnAsync();
-        var dto = await conn.QueryFirstOrDefaultAsync<TenantAuthDto>(
-            @"SELECT ""Id"", ""AuthMode"", ""ApiKey"" FROM public.""Tenants"" WHERE ""Id"" = @TenantId;", new { TenantId = tenantId });
 
-        if (dto == null) return null;
+        var dto = await conn.QueryFirstOrDefaultAsync<TenantAuthDto>(
+            @"
+            SELECT
+                ""Id"",
+                ""AuthMode"",
+                ""ApiKey"",
+                ""Status""
+            FROM public.""Tenants""
+            WHERE ""Id"" = @TenantId;
+            ",
+            new
+            {
+                TenantId = tenantId
+            });
+
+        if (dto == null)
+        {
+            return null;
+        }
 
         await using var appConn = await OpenAppConnAsync();
+
         var schemas = (await appConn.QueryAsync<string>(
-            @"SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE @Pattern;",
-            new { Pattern = $"app_{tenantId}%" })).ToHashSet();
+            @"
+            SELECT schema_name
+            FROM information_schema.schemata
+            WHERE schema_name LIKE @Pattern;
+            ",
+            new
+            {
+                Pattern = $"app_{tenantId}%"
+            })).ToHashSet();
 
-        var activeServices = _serviceClients.Keys.Where(k => IsEnabled(schemas, tenantId, k)).ToList();
+        var activeServices = _serviceClients.Keys
+            .Where(k => IsEnabled(schemas, tenantId, k))
+            .ToList();
 
-        return new TenantInfo(dto.Id, activeServices, dto.AuthMode, dto.ApiKey);
+        return new TenantInfo(
+            dto.Id,
+            activeServices,
+            dto.AuthMode,
+            dto.ApiKey,
+            dto.Status
+        );
     }
 
-    public async Task<bool> CreateTenantAsync(string tenantId, string name = "")
+    public async Task<string?> GetTenantStatusAsync(string tenantId)
+    {
+        await using var conn = await OpenAuthConnAsync();
+
+        return await conn.QueryFirstOrDefaultAsync<string>(
+            @"
+            SELECT ""Status""
+            FROM public.""Tenants""
+            WHERE ""Id"" = @TenantId;
+            ",
+            new
+            {
+                TenantId = tenantId
+            });
+    }
+
+    public async Task<bool> CreateTenantAsync(
+        string tenantId,
+        string name = "")
     {
         await using var appConn = await OpenAppConnAsync();
-        await appConn.ExecuteAsync($"CREATE SCHEMA IF NOT EXISTS \"app_{tenantId}\";");
+
+        await appConn.ExecuteAsync(
+            $@"CREATE SCHEMA IF NOT EXISTS ""app_{tenantId}"";");
 
         await using var authConn = await OpenAuthConnAsync();
+
         const string sql = @"
-            INSERT INTO public.""Tenants"" (""Id"", ""Name"", ""AuthMode"")
-            VALUES (@TenantId, @Name, 0)
-            ON CONFLICT (""Id"") DO NOTHING;";
-        await authConn.ExecuteAsync(sql, new { TenantId = tenantId, Name = string.IsNullOrWhiteSpace(name) ? tenantId : name });
+            INSERT INTO public.""Tenants""
+            (
+                ""Id"",
+                ""Name"",
+                ""AuthMode"",
+                ""Status""
+            )
+            VALUES
+            (
+                @TenantId,
+                @Name,
+                0,
+                'active'
+            )
+            ON CONFLICT (""Id"") DO NOTHING;
+        ";
+
+        await authConn.ExecuteAsync(
+            sql,
+            new
+            {
+                TenantId = tenantId,
+                Name = string.IsNullOrWhiteSpace(name)
+                    ? tenantId
+                    : name
+            });
 
         return true;
     }
@@ -103,37 +194,62 @@ public class TenantManagementService : ITenantManagementService
     {
         foreach (var client in _disableServiceClients.Values)
         {
-            try { await client(tenantId); } catch { }
+            try
+            {
+                await client(tenantId);
+            }
+            catch
+            {
+                // サービス側の削除失敗はテナント削除処理全体を止めない
+            }
         }
 
         await using var appConn = await OpenAppConnAsync();
-        await appConn.ExecuteAsync($"DROP SCHEMA IF EXISTS \"app_{tenantId}\" CASCADE;");
+
+        await appConn.ExecuteAsync(
+            $@"DROP SCHEMA IF EXISTS ""app_{tenantId}"" CASCADE;");
 
         await using var authConn = await OpenAuthConnAsync();
-        await authConn.ExecuteAsync(@"DELETE FROM public.""Tenants"" WHERE ""Id"" = @TenantId;", new { TenantId = tenantId });
 
-        return true;
+        var affectedRows = await authConn.ExecuteAsync(
+            @"
+            DELETE FROM public.""Tenants""
+            WHERE ""Id"" = @TenantId;
+            ",
+            new
+            {
+                TenantId = tenantId
+            });
+
+        return affectedRows > 0;
     }
 
-    public async Task<bool> EnableServiceForTenantAsync(string tenantId, string serviceKey)
+    public async Task<bool> EnableServiceForTenantAsync(
+        string tenantId,
+        string serviceKey)
     {
         if (_serviceClients.TryGetValue(serviceKey, out var client))
         {
             return await client(tenantId);
         }
+
         return false;
     }
 
-    public async Task<bool> DisableServiceForTenantAsync(string tenantId, string serviceKey)
+    public async Task<bool> DisableServiceForTenantAsync(
+        string tenantId,
+        string serviceKey)
     {
         if (_disableServiceClients.TryGetValue(serviceKey, out var client))
         {
             return await client(tenantId);
         }
+
         return false;
     }
 
-    public async Task<TenantMigrationResult> MigrateAllServicesForTenantAsync(string tenantId)
+    public async Task<TenantMigrationResult> MigrateAllServicesForTenantAsync(
+        string tenantId)
     {
         var result = new TenantMigrationResult();
 
@@ -142,20 +258,26 @@ public class TenantManagementService : ITenantManagementService
             try
             {
                 var ok = await client(tenantId);
+
                 if (!ok)
                 {
                     result.FailedServices.Add(serviceName);
+
                     _logger.LogWarning(
                         "テナント {TenantId} のサービス {ServiceName} マイグレーションが失敗しました(戻り値false)。",
-                        tenantId, serviceName);
+                        tenantId,
+                        serviceName);
                 }
             }
             catch (Exception ex)
             {
                 result.FailedServices.Add(serviceName);
-                _logger.LogError(ex,
+
+                _logger.LogError(
+                    ex,
                     "テナント {TenantId} のサービス {ServiceName} マイグレーション中に例外が発生しました。",
-                    tenantId, serviceName);
+                    tenantId,
+                    serviceName);
             }
         }
 
@@ -163,10 +285,12 @@ public class TenantManagementService : ITenantManagementService
     }
 
     public async Task<bool> MigrateServiceForTenantAsync(
-    string tenantId,
-    string serviceKey)
+        string tenantId,
+        string serviceKey)
     {
-        if (!_migrateServiceClients.TryGetValue(serviceKey, out var client))
+        if (!_migrateServiceClients.TryGetValue(
+                serviceKey,
+                out var client))
         {
             _logger.LogWarning(
                 "未対応のサービスキーです: {ServiceKey}",
@@ -201,64 +325,202 @@ public class TenantManagementService : ITenantManagementService
         }
     }
 
-    public async Task<IEnumerable<MigrationHistoryDto>> GetTenantMigrationsAsync(string tenantId)
+    public async Task<IEnumerable<MigrationHistoryDto>> GetTenantMigrationsAsync(
+        string tenantId)
     {
-        return await Task.FromResult(Enumerable.Empty<MigrationHistoryDto>());
+        return await Task.FromResult(
+            Enumerable.Empty<MigrationHistoryDto>());
     }
 
-    public async Task<HealthCheckResultDto> CheckTenantHealthAsync(string tenantId)
+    public async Task<HealthCheckResultDto> CheckTenantHealthAsync(
+        string tenantId)
     {
-        return await Task.FromResult(new HealthCheckResultDto("Healthy", "Healthy", "All services operating normally."));
+        return await Task.FromResult(
+            new HealthCheckResultDto(
+                "Healthy",
+                "Healthy",
+                "All services operating normally."));
     }
 
-    public async Task<bool> UpdateTenantStatusAsync(string tenantId, string status)
+    public async Task<bool> UpdateTenantStatusAsync(
+        string tenantId,
+        string status)
     {
-        return await Task.FromResult(true);
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            return false;
+        }
+
+        if (!status.Equals("active", StringComparison.OrdinalIgnoreCase) &&
+            !status.Equals("suspended", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning(
+                "不正なテナントステータスです: {Status}",
+                status);
+
+            return false;
+        }
+
+        var normalizedStatus = status.ToLowerInvariant();
+
+        await using var conn = await OpenAuthConnAsync();
+
+        var affectedRows = await conn.ExecuteAsync(
+            @"
+            UPDATE public.""Tenants""
+            SET ""Status"" = @Status
+            WHERE ""Id"" = @TenantId;
+            ",
+            new
+            {
+                TenantId = tenantId,
+                Status = normalizedStatus
+            });
+
+        if (affectedRows == 0)
+        {
+            _logger.LogWarning(
+                "ステータス更新対象のテナントが存在しません: {TenantId}",
+                tenantId);
+
+            return false;
+        }
+
+        return true;
     }
 
     public async Task<string> GenerateApiKeyAsync(string tenantId)
     {
         var apiKey = $"key_{Guid.NewGuid():N}";
+
         await using var conn = await OpenAuthConnAsync();
-        await conn.ExecuteAsync(@"UPDATE public.""Tenants"" SET ""ApiKey"" = @ApiKey WHERE ""Id"" = @TenantId;", new { ApiKey = apiKey, TenantId = tenantId });
+
+        await conn.ExecuteAsync(
+            @"
+            UPDATE public.""Tenants""
+            SET ""ApiKey"" = @ApiKey
+            WHERE ""Id"" = @TenantId;
+            ",
+            new
+            {
+                ApiKey = apiKey,
+                TenantId = tenantId
+            });
+
         return apiKey;
     }
 
-    public async Task<bool> UpdateAuthModeAsync(string tenantId, int authMode)
+    public async Task<bool> UpdateAuthModeAsync(
+        string tenantId,
+        int authMode)
     {
         await using var conn = await OpenAuthConnAsync();
-        await conn.ExecuteAsync(@"UPDATE public.""Tenants"" SET ""AuthMode"" = @AuthMode WHERE ""Id"" = @TenantId;", new { AuthMode = authMode, TenantId = tenantId });
-        return true;
+
+        var affectedRows = await conn.ExecuteAsync(
+            @"
+            UPDATE public.""Tenants""
+            SET ""AuthMode"" = @AuthMode
+            WHERE ""Id"" = @TenantId;
+            ",
+            new
+            {
+                AuthMode = authMode,
+                TenantId = tenantId
+            });
+
+        return affectedRows > 0;
     }
 
     public async Task<IEnumerable<UserInfo>> GetUsersAsync()
     {
         await using var conn = await OpenAuthConnAsync();
-        var users = await conn.QueryAsync<dynamic>(@"SELECT ""Id"", ""LoginId"", ""TenantId"", ""CreatedAt"" FROM public.""Users"";");
-        return users.Select(u => new UserInfo(u.Id.ToString(), u.LoginId, u.TenantId, u.CreatedAt.ToString("o")));
+
+        var users = await conn.QueryAsync<dynamic>(
+            @"
+            SELECT
+                ""Id"",
+                ""LoginId"",
+                ""TenantId"",
+                ""CreatedAt""
+            FROM public.""Users"";
+            ");
+
+        return users.Select(u =>
+            new UserInfo(
+                u.Id.ToString(),
+                u.LoginId,
+                u.TenantId,
+                u.CreatedAt.ToString("o")));
     }
 
-    public async Task<bool> RegisterUserAsync(string loginId, string password, string tenantId)
+    public async Task<bool> RegisterUserAsync(
+        string loginId,
+        string password,
+        string tenantId)
     {
-        var passwordHash = BCrypt.Net.BCrypt.HashPassword(password);
+        var passwordHash =
+            BCrypt.Net.BCrypt.HashPassword(password);
+
         await using var conn = await OpenAuthConnAsync();
+
         const string sql = @"
-            INSERT INTO public.""Users"" (""LoginId"", ""PasswordHash"", ""TenantId"")
-            VALUES (@LoginId, @PasswordHash, @TenantId);";
-        await conn.ExecuteAsync(sql, new { LoginId = loginId, PasswordHash = passwordHash, TenantId = tenantId });
+            INSERT INTO public.""Users""
+            (
+                ""LoginId"",
+                ""PasswordHash"",
+                ""TenantId""
+            )
+            VALUES
+            (
+                @LoginId,
+                @PasswordHash,
+                @TenantId
+            );
+        ";
+
+        await conn.ExecuteAsync(
+            sql,
+            new
+            {
+                LoginId = loginId,
+                PasswordHash = passwordHash,
+                TenantId = tenantId
+            });
+
         return true;
     }
 
     public async Task<bool> DeleteUserAsync(string userId)
     {
-        if (!int.TryParse(userId, out int id)) return false;
+        if (!int.TryParse(userId, out int id))
+        {
+            return false;
+        }
+
         await using var conn = await OpenAuthConnAsync();
-        await conn.ExecuteAsync(@"DELETE FROM public.""Users"" WHERE ""Id"" = @Id;", new { Id = id });
-        return true;
+
+        var affectedRows = await conn.ExecuteAsync(
+            @"
+            DELETE FROM public.""Users""
+            WHERE ""Id"" = @Id;
+            ",
+            new
+            {
+                Id = id
+            });
+
+        return affectedRows > 0;
     }
 
-    private static bool IsEnabled(HashSet<string> schemas, string tenantId, string key)
-        => key.Equals("drive", StringComparison.OrdinalIgnoreCase)
-             ? schemas.Contains($"app_{tenantId}")
-             : schemas.Contains($"app_{tenantId}_{key}");
+    private static bool IsEnabled(
+        HashSet<string> schemas,
+        string tenantId,
+        string key)
+    {
+        return key.Equals(
+                   "drive",
+                   StringComparison.OrdinalIgnoreCase)
+            ? schemas.Contains($"app_{tenantId}")
+            : schemas.Contains($"app_{tenantId}_{key}");
+    }
 }

@@ -170,6 +170,46 @@ namespace DeleuzeMng.Controllers
             }
         }
 
+        // テナントの現在のステータスを取得
+        [HttpGet("{tenantId}/status")]
+        public async Task<IActionResult> GetStatus(string tenantId)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId))
+            {
+                return BadRequest("テナントIDが無効です。");
+            }
+
+            try
+            {
+                var tenant = await _tenantService.GetTenantByIdAsync(tenantId);
+
+                if (tenant is null)
+                {
+                    return NotFound("該当するテナントが見つかりません。");
+                }
+
+                var status = tenant.Status ?? "active";
+
+                return Ok(new
+                {
+                    tenantId = tenantId,
+                    status = status,
+                    isActive = string.Equals(
+                        status,
+                        "active",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    error = $"テナント '{tenantId}' のステータス取得に失敗しました。",
+                    message = ex.Message
+                });
+            }
+        }
         // テナントのステータス変更（一時停止 / 有効化）
         [HttpPatch("{tenantId}/status")]
         public async Task<IActionResult> UpdateStatus(string tenantId, [FromBody] UpdateStatusRequest request)
