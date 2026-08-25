@@ -9,6 +9,7 @@ namespace Deleuze.Shared.Infrastructure;
 
 public class TenantSchemaManager :
     ITenantSchemaProvisioner,
+    ITenantSchemaDeprovisioner,
     ITenantSchemaMigrator
 {
     private readonly string _connectionString;
@@ -27,6 +28,12 @@ public class TenantSchemaManager :
             ?? throw new ArgumentNullException(nameof(serviceName));
     }
 
+    /// <summary>
+    /// テナントSchemaを作成し、全Migrationを適用する。
+    ///
+    /// 既にSchemaが存在する場合は、
+    /// 未適用Migrationのみを適用する。
+    /// </summary>
     public async Task ProvisionAsync(
         string tenantId,
         string migrationDirectory)
@@ -62,6 +69,37 @@ public class TenantSchemaManager :
             migrationDirectory);
     }
 
+    /// <summary>
+    /// テナントSchemaを削除する。
+    /// </summary>
+    public async Task DeprovisionAsync(
+        string tenantId)
+    {
+        var schemaName =
+            TenantSchemaNaming.GetSchemaName(
+                _serviceName,
+                tenantId);
+
+        await using var connection =
+            new NpgsqlConnection(_connectionString);
+
+        await connection.OpenAsync();
+
+        await using var command =
+            connection.CreateCommand();
+
+        command.CommandText =
+            $"DROP SCHEMA IF EXISTS \"{schemaName}\" CASCADE;";
+
+        await command.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>
+    /// 既存テナントSchemaに未適用Migrationを適用する。
+    ///
+    /// SchemaやSchemaMigrationsは作成しない。
+    /// Provisioning済みであることを前提とする。
+    /// </summary>
     public async Task MigrateAsync(
         string tenantId,
         string migrationDirectory)
@@ -138,10 +176,15 @@ public class TenantSchemaManager :
                 schemaName);
 
         var sqlFiles = Directory
-            .GetFiles(migrationDirectory, "*.sql")
+            .GetFiles(
+                migrationDirectory,
+                "*.sql")
             .Select(Path.GetFileName)
-            .Where(f => !string.IsNullOrWhiteSpace(f))
-            .OrderBy(f => f, StringComparer.Ordinal)
+            .Where(f =>
+                !string.IsNullOrWhiteSpace(f))
+            .OrderBy(
+                f => f,
+                StringComparer.Ordinal)
             .ToList();
 
         foreach (var fileName in sqlFiles)
@@ -157,7 +200,8 @@ public class TenantSchemaManager :
                     fileName!);
 
             var sql =
-                await File.ReadAllTextAsync(filePath);
+                await File.ReadAllTextAsync(
+                    filePath);
 
             await using var transaction =
                 await connection.BeginTransactionAsync();
@@ -168,7 +212,8 @@ public class TenantSchemaManager :
                 await using (var command =
                     connection.CreateCommand())
                 {
-                    command.Transaction = transaction;
+                    command.Transaction =
+                        transaction;
 
                     command.CommandText =
                         $"SET search_path TO \"{schemaName}\", public;";
@@ -180,8 +225,11 @@ public class TenantSchemaManager :
                 await using (var command =
                     connection.CreateCommand())
                 {
-                    command.Transaction = transaction;
-                    command.CommandText = sql;
+                    command.Transaction =
+                        transaction;
+
+                    command.CommandText =
+                        sql;
 
                     await command.ExecuteNonQueryAsync();
                 }
@@ -190,7 +238,8 @@ public class TenantSchemaManager :
                 await using (var command =
                     connection.CreateCommand())
                 {
-                    command.Transaction = transaction;
+                    command.Transaction =
+                        transaction;
 
                     command.CommandText = $@"
                         INSERT INTO
@@ -207,7 +256,8 @@ public class TenantSchemaManager :
 
                 await transaction.CommitAsync();
 
-                appliedMigrations.Add(fileName!);
+                appliedMigrations.Add(
+                    fileName!);
             }
             catch
             {
@@ -238,7 +288,8 @@ public class TenantSchemaManager :
 
         while (await reader.ReadAsync())
         {
-            result.Add(reader.GetString(0));
+            result.Add(
+                reader.GetString(0));
         }
 
         return result;

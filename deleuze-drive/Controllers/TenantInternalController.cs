@@ -13,13 +13,16 @@ namespace DeleuzeDrive.Controllers
     {
         private readonly ITenantProvisioningService _provisioningService;
         private readonly ITenantMigrationService _migrationService;
+        private readonly ITenantDeprovisioningService _deprovisioningService;
 
         public TenantInternalController(
             ITenantProvisioningService provisioningService,
-            ITenantMigrationService migrationService)
+            ITenantMigrationService migrationService,
+            ITenantDeprovisioningService deprovisioningService)
         {
             _provisioningService = provisioningService;
             _migrationService = migrationService;
+            _deprovisioningService = deprovisioningService;
         }
 
         /// <summary>
@@ -30,13 +33,16 @@ namespace DeleuzeDrive.Controllers
         /// DbMigration配下のMigrationをすべて適用します。
         /// </remarks>
         [HttpPost("{tenantId}")]
-        public async Task<IActionResult> ProvisionTenant(string tenantId)
+        public async Task<IActionResult> ProvisionTenant(
+            string tenantId)
         {
-            await _provisioningService.ProvisionTenantSchemaAsync(tenantId);
+            await _provisioningService
+                .ProvisionTenantSchemaAsync(tenantId);
 
             return Ok(new
             {
-                message = $"Tenant {tenantId} provisioned successfully."
+                message =
+                    $"Tenant {tenantId} provisioned successfully."
             });
         }
 
@@ -44,13 +50,37 @@ namespace DeleuzeDrive.Controllers
         /// 既存テナントの未適用Migrationを実行します。
         /// </summary>
         [HttpPost("{tenantId}/migrate")]
-        public async Task<IActionResult> MigrateTenant(string tenantId)
+        public async Task<IActionResult> MigrateTenant(
+            string tenantId)
         {
-            await _migrationService.MigrateTenantSchemaAsync(tenantId);
+            await _migrationService
+                .MigrateTenantSchemaAsync(tenantId);
 
             return Ok(new
             {
-                message = $"Tenant {tenantId} migrated successfully."
+                message =
+                    $"Tenant {tenantId} migrated successfully."
+            });
+        }
+
+        /// <summary>
+        /// テナントのSchemaを削除します。
+        /// </summary>
+        /// <remarks>
+        /// 対象テナントのSchemaを削除し、
+        /// Schema内のテーブル等もすべて削除します。
+        /// </remarks>
+        [HttpDelete("{tenantId}")]
+        public async Task<IActionResult> DeprovisionTenant(
+            string tenantId)
+        {
+            await _deprovisioningService
+                .DeprovisionTenantSchemaAsync(tenantId);
+
+            return Ok(new
+            {
+                message =
+                    $"Tenant {tenantId} deprovisioned successfully."
             });
         }
     }
