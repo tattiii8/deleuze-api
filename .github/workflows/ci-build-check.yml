@@ -2,12 +2,13 @@ name: CI Build Check
 
 on:
   push:
-    branches: [ sandbox ]
+    branches: [ deleuze-api-v2.0 ]
     paths:
       - 'deleuze-auth/**'
       - 'deleuze-app/**'
       - 'deleuze-mng/**'
       - 'deleuze-drive/**'
+      - 'deleuze-shared/**
       - '.github/workflows/**'
 
 jobs:
