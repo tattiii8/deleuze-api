@@ -75,7 +75,7 @@ namespace DeleuzeDrive.Controllers
             string tenantId)
         {
             await _deprovisioningService
-                .DeprovisionTenantSchemaAsync(tenantId);
+                .DeprovisionTenantAsync(tenantId);
 
             return Ok(new
             {

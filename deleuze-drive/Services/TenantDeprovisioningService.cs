@@ -6,31 +6,39 @@ namespace DeleuzeDrive.Services;
 
 public interface ITenantDeprovisioningService
 {
-    Task DeprovisionTenantSchemaAsync(string tenantId);
+    Task DeprovisionTenantAsync(string tenantId);
 }
 
 public class TenantDeprovisioningService :
     ITenantDeprovisioningService
 {
-    private readonly ITenantSchemaDeprovisioner _deprovisioner;
+    private readonly ITenantSchemaDeprovisioner _schemaDeprovisioner;
+    private readonly IStorageService _storageService;
     private readonly ILogger<TenantDeprovisioningService> _logger;
 
     public TenantDeprovisioningService(
-        ITenantSchemaDeprovisioner deprovisioner,
+        ITenantSchemaDeprovisioner schemaDeprovisioner,
+        IStorageService storageService,
         ILogger<TenantDeprovisioningService> logger)
     {
-        _deprovisioner = deprovisioner;
+        _schemaDeprovisioner = schemaDeprovisioner;
+        _storageService = storageService;
         _logger = logger;
     }
 
-    public async Task DeprovisionTenantSchemaAsync(
+    public async Task DeprovisionTenantAsync(
         string tenantId)
     {
         _logger.LogInformation(
             "Starting deprovisioning for tenant: {TenantId}",
             tenantId);
 
-        await _deprovisioner.DeprovisionAsync(
+        // S3のテナントデータを削除
+        await _storageService.DeletePrefixAsync(
+            $"{tenantId}/");
+
+        // DB Schemaを削除
+        await _schemaDeprovisioner.DeprovisionAsync(
             tenantId);
 
         _logger.LogInformation(
