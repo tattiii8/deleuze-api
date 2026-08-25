@@ -2,7 +2,7 @@ using System.Threading.Tasks;
 using Deleuze.Shared.Infrastructure;
 using Microsoft.Extensions.Logging;
 
-namespace DeleuzeDrive.Services;
+namespace DeleuzeDrive.Services.Tenant;
 
 public interface ITenantDeprovisioningService
 {

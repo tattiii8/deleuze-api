@@ -1,7 +1,7 @@
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using DeleuzeDrive.Services;
+using DeleuzeDrive.Services.Tenant;
 using Deleuze.Shared.Constants;
 
 namespace DeleuzeDrive.Controllers

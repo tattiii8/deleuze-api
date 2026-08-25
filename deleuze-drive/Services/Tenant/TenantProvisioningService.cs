@@ -4,7 +4,7 @@ using Deleuze.Shared.Infrastructure;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace DeleuzeDrive.Services;
+namespace DeleuzeDrive.Services.Tenant;
 
 public interface ITenantProvisioningService
 {
