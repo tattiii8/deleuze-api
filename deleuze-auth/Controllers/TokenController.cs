@@ -17,7 +17,7 @@ using DeleuzeAuth.Models;
 namespace DeleuzeAuth.Controllers
 {
     /// <summary>
-    /// API利用者向けアクセストークン発行API
+    /// API利用者向けアクセストークン発行
     ///
     /// POST /api/auth/token
     /// </summary>
