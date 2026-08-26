@@ -31,15 +31,17 @@ namespace DeleuzeMng.Controllers
         /// ユーザー作成
         /// </summary>
         [HttpPost]
-        public async Task<IActionResult> CreateUser([FromQuery] string tenantId, [FromBody] CreateUserRequest request)
+        public async Task<IActionResult> CreateUser(
+            [FromQuery] string tenantId,
+            [FromBody] CreateUserRequest request)
         {
             if (string.IsNullOrWhiteSpace(tenantId) || request == null)
             {
                 return BadRequest("リクエストが無効です。");
             }
 
-            if (string.IsNullOrWhiteSpace(request.LoginId) || 
-                string.IsNullOrWhiteSpace(request.Password) || 
+            if (string.IsNullOrWhiteSpace(request.LoginId) ||
+                string.IsNullOrWhiteSpace(request.Password) ||
                 string.IsNullOrWhiteSpace(request.Email))
             {
                 return BadRequest("LoginId, Password, Email は必須です。");
@@ -47,7 +49,8 @@ namespace DeleuzeMng.Controllers
 
             var subjectId = Guid.NewGuid().ToString();
 
-            await using var transaction = await _dbContext.Database.BeginTransactionAsync();
+            await using var transaction =
+                await _dbContext.Database.BeginTransactionAsync();
 
             try
             {
@@ -61,10 +64,28 @@ namespace DeleuzeMng.Controllers
                 };
 
                 _dbContext.Users.Add(mngUser);
-                await _dbContext.SaveChangesAsync();
 
-                // 2. 認証API連携 (Program.csで設定した AuthApiClient を利用)
+                try
+                {
+                    await _dbContext.SaveChangesAsync();
+                }
+                catch (DbUpdateException ex)
+                    when (ex.InnerException is Npgsql.PostgresException pg &&
+                        pg.SqlState == "23505")
+                {
+                    await transaction.RollbackAsync();
+
+                    return Conflict(new
+                    {
+                        error = "UserAlreadyExists",
+                        message = "指定された login_id は既に使用されています。",
+                        loginId = request.LoginId
+                    });
+                }
+
+                // 2. 認証API連携
                 var client = _httpClientFactory.CreateClient("AuthApiClient");
+
                 var authPayload = new
                 {
                     SubjectId = subjectId,
@@ -72,31 +93,46 @@ namespace DeleuzeMng.Controllers
                     Password = request.Password
                 };
 
-                // ApiRoutes 定数を用いて相対パスを作成 (BaseAddress: http://deleuze-auth:5001)
-                var authEndpoint = $"{ApiRoutes.Auth.InternalBase}/users"; // -> "api/auth/internal/users"
-                var response = await client.PostAsJsonAsync(authEndpoint, authPayload);
+                var authEndpoint =
+                    $"{ApiRoutes.Auth.InternalBase}/users";
 
+                var response = await client.PostAsJsonAsync(
+                    authEndpoint,
+                    authPayload);
+
+                // 3. Auth側でエラー
                 if (!response.IsSuccessStatusCode)
                 {
                     await transaction.RollbackAsync();
+
                     var error = await response.Content.ReadAsStringAsync();
-                    return StatusCode((int)response.StatusCode, $"認証DBへの登録に失敗しました: {error}");
+
+                    return StatusCode(
+                        (int)response.StatusCode,
+                        $"認証DBへの登録に失敗しました: {error}");
                 }
 
+                // 4. 両方成功
                 await transaction.CommitAsync();
 
-                return CreatedAtAction(nameof(GetUserBySubjectId), new { subjectId }, new
-                {
-                    subjectId,
-                    loginId = request.LoginId,
-                    userName = request.UserName,
-                    email = request.Email
-                });
+                return CreatedAtAction(
+                    nameof(GetUserBySubjectId),
+                    new { subjectId },
+                    new
+                    {
+                        subjectId,
+                        loginId = request.LoginId,
+                        userName = request.UserName,
+                        email = request.Email
+                    });
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                return StatusCode(500, $"ユーザー作成中にエラーが発生しました: {ex.Message}");
+
+                return StatusCode(
+                    500,
+                    $"ユーザー作成中にエラーが発生しました: {ex.Message}");
             }
         }
 
