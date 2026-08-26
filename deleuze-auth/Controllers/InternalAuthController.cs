@@ -12,27 +12,31 @@ namespace DeleuzeAuth.Controllers
 {
     [ApiController]
     [AllowAnonymous]
-    [Route(ApiRoutes.Auth.InternalBase)] // "api/auth/internal"
+    [Route(ApiRoutes.Auth.InternalBase)]
     public class InternalAuthController : ControllerBase
     {
         private readonly AuthDbContext _dbContext;
         private readonly IDbInitializerService _dbInitializer;
 
-        public InternalAuthController(AuthDbContext dbContext, IDbInitializerService dbInitializer)
+        public InternalAuthController(
+            AuthDbContext dbContext,
+            IDbInitializerService dbInitializer)
         {
             _dbContext = dbContext;
             _dbInitializer = dbInitializer;
         }
 
         /// <summary>
-        /// DBの初期スキーマおよびテーブルを .sql ファイルから作成します。
+        /// DBの初期スキーマおよびテーブルを
+        /// .sqlファイルから作成します。
         /// </summary>
-        [HttpPost("init")] // -> POST api/auth/internal/init
+        [HttpPost("init")]
         public async Task<IActionResult> InitializeDatabase()
         {
             try
             {
                 await _dbInitializer.ExecuteInitSqlAsync();
+
                 return Ok(new
                 {
                     message = "auth スキーマおよび初期テーブルの作成が完了しました。",
@@ -51,50 +55,87 @@ namespace DeleuzeAuth.Controllers
 
         /// <summary>
         /// 内部認証ユーザー作成
+        /// POST api/auth/internal/users
         /// </summary>
-        [HttpPost("users")] // -> POST api/auth/internal/users
-        public async Task<IActionResult> RegisterUser([FromBody] RegisterAuthUserRequest request)
+        [HttpPost("users")]
+        public async Task<IActionResult> RegisterUser(
+            [FromBody] RegisterAuthUserRequest request)
         {
             if (request == null ||
                 string.IsNullOrWhiteSpace(request.SubjectId) ||
+                string.IsNullOrWhiteSpace(request.TenantId) ||
                 string.IsNullOrWhiteSpace(request.LoginId) ||
                 string.IsNullOrWhiteSpace(request.Password))
             {
                 return BadRequest("必須項目が不足しています。");
             }
 
-            var exists = await _dbContext.Users.AnyAsync(u => u.LoginId == request.LoginId);
-            if (exists) return Conflict("指定された login_id は既に使用されています。");
+            // テナント内で login_id が重複していないか確認
+            var exists = await _dbContext.Users
+                .AnyAsync(u =>
+                    u.TenantId == request.TenantId &&
+                    u.LoginId == request.LoginId);
+
+            if (exists)
+            {
+                return Conflict(new
+                {
+                    error = "UserAlreadyExists",
+                    message = "指定されたテナントでは、この login_id は既に使用されています。",
+                    tenantId = request.TenantId,
+                    loginId = request.LoginId
+                });
+            }
 
             var authUser = new AuthUser
             {
                 SubjectId = request.SubjectId,
+                TenantId = request.TenantId,
                 LoginId = request.LoginId,
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password)
+                PasswordHash =
+                    BCrypt.Net.BCrypt.HashPassword(request.Password)
             };
 
             _dbContext.Users.Add(authUser);
             await _dbContext.SaveChangesAsync();
 
-            return Ok(new { message = "認証情報の登録に成功しました。" });
+            return Ok(new
+            {
+                message = "認証情報の登録に成功しました。",
+                subjectId = authUser.SubjectId,
+                tenantId = authUser.TenantId
+            });
         }
 
         /// <summary>
         /// 内部認証ユーザー削除
+        /// DELETE api/auth/internal/users/{subjectId}
         /// </summary>
-        [HttpDelete("users/{subjectId}")] // -> DELETE api/auth/internal/users/{subjectId}
+        [HttpDelete("users/{subjectId}")]
         public async Task<IActionResult> DeleteUser(string subjectId)
         {
-            if (string.IsNullOrWhiteSpace(subjectId)) return BadRequest("subjectId は必須です。");
+            if (string.IsNullOrWhiteSpace(subjectId))
+            {
+                return BadRequest("subjectId は必須です。");
+            }
 
-            var user = await _dbContext.Users.FindAsync(subjectId);
-            if (user == null) return NotFound("該当する認証ユーザーが存在しません。");
+            var user = await _dbContext.Users
+                .FirstOrDefaultAsync(u =>
+                    u.SubjectId == subjectId);
+
+            if (user == null)
+            {
+                return NotFound(
+                    "該当する認証ユーザーが存在しません。");
+            }
 
             _dbContext.Users.Remove(user);
             await _dbContext.SaveChangesAsync();
 
-            return Ok(new { message = "認証情報の削除に成功しました。" });
+            return Ok(new
+            {
+                message = "認証情報の削除に成功しました。"
+            });
         }
     }
-
 }

@@ -1,13 +1,40 @@
--- auth スキーマの作成（存在しない場合）
+-- auth スキーマの作成
 CREATE SCHEMA IF NOT EXISTS auth;
 
 -- auth.users テーブルの作成
 CREATE TABLE IF NOT EXISTS auth.users (
-    subject_id VARCHAR(255) NOT NULL,
-    login_id VARCHAR(255) NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    CONSTRAINT pk_auth_users PRIMARY KEY (subject_id)
+    subject_id     VARCHAR(255) NOT NULL,
+    tenant_id      VARCHAR(255) NOT NULL,
+    login_id       VARCHAR(255) NOT NULL,
+    password_hash  VARCHAR(255) NOT NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT pk_auth_users
+        PRIMARY KEY (subject_id)
 );
 
--- login_id のユニークインデックス（必要に応じて）
-CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_users_login_id ON auth.users (login_id);
+-- テナントごとに login_id を一意にする
+CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_users_tenant_login_id
+    ON auth.users (tenant_id, login_id);
+
+-- tenant_id による検索用
+CREATE INDEX IF NOT EXISTS idx_auth_users_tenant_id
+    ON auth.users (tenant_id);
+
+-- updated_at 自動更新用
+CREATE OR REPLACE FUNCTION auth.update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE 'plpgsql';
+
+DROP TRIGGER IF EXISTS trg_auth_users_updated_at
+    ON auth.users;
+
+CREATE TRIGGER trg_auth_users_updated_at
+    BEFORE UPDATE ON auth.users
+    FOR EACH ROW
+    EXECUTE FUNCTION auth.update_updated_at_column();
