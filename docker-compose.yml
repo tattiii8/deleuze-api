@@ -62,9 +62,9 @@ services:
       - "5001:5001"
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
-      ASPNETCORE_URLS: http://+:5001
+      ASPNETCORE_URLS: http://0.0.0.0:5001
       DOTNET_USE_POLLING_FILE_WATCHER: "true"
-      ConnectionStrings__DefaultConnection: ${CONN_AUTH_DB}
+      ConnectionStrings__AuthConnection: ${CONN_AUTH_DB}
       AUTH_EXTERNAL_URL: ${AUTH_EXTERNAL_URL}
       AUTH_INTERNAL_URL: ${AUTH_INTERNAL_URL}
     depends_on:
@@ -78,7 +78,7 @@ services:
       - "5002:5002"
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
-      ASPNETCORE_URLS: http://+:5002
+      ASPNETCORE_URLS: http://0.0.0.0:5002
       DOTNET_USE_POLLING_FILE_WATCHER: "true"
       ConnectionStrings__MngConnection: ${CONN_MNG_DB}
       ConnectionStrings__AuthConnection: ${CONN_AUTH_DB}
@@ -97,7 +97,7 @@ services:
       - "5003:5003"
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
-      ASPNETCORE_URLS: http://+:5003
+      ASPNETCORE_URLS: http://0.0.0.0:5003
       DOTNET_USE_POLLING_FILE_WATCHER: "true"
       ConnectionStrings__DefaultConnection: ${CONN_DRIVE_DB}
       AUTH_EXTERNAL_URL: ${AUTH_EXTERNAL_URL}
