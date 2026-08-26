@@ -1,4 +1,4 @@
-name: CI to AWS ECR
+name: Build ECR Images
 
 on:
   push:
