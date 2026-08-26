@@ -1,9 +1,8 @@
-namespace DeleuzeMng.Models
+public class CreateTenantRequest
 {
-    public class CreateTenantRequest
-    {
-        public string TenantName { get; set; } = string.Empty;
+    public string TenantId { get; set; } = string.Empty;
 
-        public string? DisplayName { get; set; }
-    }
+    public string TenantName { get; set; } = string.Empty;
+
+    public string? DisplayName { get; set; }
 }

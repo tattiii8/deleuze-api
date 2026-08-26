@@ -48,6 +48,19 @@ namespace DeleuzeMng.Controllers
                 return BadRequest("リクエストが無効です。");
             }
 
+            var tenantExists = await _dbContext.Tenants
+                .AnyAsync(t => t.TenantId == tenantId);
+
+            if (!tenantExists)
+            {
+                return NotFound(new
+                {
+                    error = "TenantNotFound",
+                    message = "指定されたテナントが存在しません。",
+                    tenantId
+                });
+            }
+
             if (string.IsNullOrWhiteSpace(request.LoginId) ||
                 string.IsNullOrWhiteSpace(request.Password) ||
                 string.IsNullOrWhiteSpace(request.Email))

@@ -39,7 +39,7 @@ namespace DeleuzeMng.Controllers
                 return BadRequest("TenantName は必須です。");
             }
 
-            var tenantId = Guid.NewGuid().ToString();
+            var tenantId = request.TenantId;
 
             await using var transaction =
                 await _dbContext.Database.BeginTransactionAsync();
@@ -173,6 +173,80 @@ namespace DeleuzeMng.Controllers
                 createdAt = tenant.CreatedAt,
                 updatedAt = tenant.UpdatedAt
             });
+        }
+
+        /// <summary>
+        /// テナント削除
+        /// DELETE /api/mng/tenants/{tenantId}
+        /// </summary>
+        [HttpDelete("{tenantId}")]
+        public async Task<IActionResult> DeleteTenant(string tenantId)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId))
+            {
+                return BadRequest("tenantId は必須です。");
+            }
+
+            var tenant = await _dbContext.Tenants
+                .FirstOrDefaultAsync(t => t.TenantId == tenantId);
+
+            if (tenant == null)
+            {
+                return NotFound("指定されたテナントが存在しません。");
+            }
+
+            await using var transaction =
+                await _dbContext.Database.BeginTransactionAsync();
+
+            try
+            {
+                // 1. Auth側のテナントを削除
+                var client =
+                    _httpClientFactory.CreateClient("AuthApiClient");
+
+                var authEndpoint =
+                    $"{ApiRoutes.Auth.InternalBase}/tenants/{tenantId}";
+
+                var response =
+                    await client.DeleteAsync(authEndpoint);
+
+                if (!response.IsSuccessStatusCode &&
+                    response.StatusCode != System.Net.HttpStatusCode.NotFound)
+                {
+                    await transaction.RollbackAsync();
+
+                    var error =
+                        await response.Content.ReadAsStringAsync();
+
+                    return StatusCode(
+                        (int)response.StatusCode,
+                        $"認証DBからのテナント削除に失敗しました: {error}");
+                }
+
+                // 2. Mng側のユーザーを削除
+                var users = await _dbContext.Users
+                    .Where(u => u.TenantId == tenantId)
+                    .ToListAsync();
+
+                _dbContext.Users.RemoveRange(users);
+
+                // 3. Mng側のテナントを削除
+                _dbContext.Tenants.Remove(tenant);
+
+                await _dbContext.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+
+                return NoContent();
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+
+                return StatusCode(
+                    500,
+                    $"テナント削除中にエラーが発生しました: {ex.Message}");
+            }
         }
     }
 }

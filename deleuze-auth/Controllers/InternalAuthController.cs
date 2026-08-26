@@ -70,6 +70,20 @@ namespace DeleuzeAuth.Controllers
                 return BadRequest("必須項目が不足しています。");
             }
 
+
+            var tenantExists = await _dbContext.Tenants
+                .AnyAsync(t => t.TenantId == tenantId);
+
+            if (!tenantExists)
+            {
+                return NotFound(new
+                {
+                    error = "TenantNotFound",
+                    message = "指定されたテナントが存在しません。",
+                    tenantId
+                });
+            }
+
             // テナント内で login_id が重複していないか確認
             var exists = await _dbContext.Users
                 .AnyAsync(u =>
@@ -167,6 +181,45 @@ namespace DeleuzeAuth.Controllers
             return Ok(new
             {
                 message = "認証テナントの登録に成功しました。"
+            });
+        }
+
+        /// <summary>
+        /// 内部認証テナント削除
+        /// DELETE api/auth/internal/tenants/{tenantId}
+        /// </summary>
+        [HttpDelete("tenants/{tenantId}")]
+        public async Task<IActionResult> DeleteTenant(string tenantId)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId))
+            {
+                return BadRequest("tenantId は必須です。");
+            }
+
+            var tenant = await _dbContext.Tenants
+                .FirstOrDefaultAsync(t => t.TenantId == tenantId);
+
+            if (tenant == null)
+            {
+                return NotFound("該当する認証テナントが存在しません。");
+            }
+
+            // 1. テナント所属ユーザーを削除
+            var users = await _dbContext.Users
+                .Where(u => u.TenantId == tenantId)
+                .ToListAsync();
+
+            _dbContext.Users.RemoveRange(users);
+
+            // 2. テナントを削除
+            _dbContext.Tenants.Remove(tenant);
+
+            await _dbContext.SaveChangesAsync();
+
+            return Ok(new
+            {
+                message = "認証テナントおよび所属ユーザーの削除に成功しました。",
+                tenantId
             });
         }
     }
