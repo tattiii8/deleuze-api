@@ -67,6 +67,12 @@ services:
       ConnectionStrings__AuthConnection: ${CONN_AUTH_DB}
       AUTH_EXTERNAL_URL: ${AUTH_EXTERNAL_URL}
       AUTH_INTERNAL_URL: ${AUTH_INTERNAL_URL}
+
+      # JWT
+      Jwt__Key: ${JWT_KEY}
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE}
+      Jwt__ExpiresMinutes: ${JWT_EXPIRES_MINUTES}
     depends_on:
       - deleuze-auth-db
 
