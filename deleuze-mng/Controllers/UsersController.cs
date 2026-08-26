@@ -11,8 +11,11 @@ using DeleuzeMng.Services;
 
 namespace DeleuzeMng.Controllers
 {
+    // ==========================================
+    // 1. 公開ユーザー管理 API (api/mng/users)
+    // ==========================================
     [ApiController]
-    [Route(ApiRoutes.Management.Users)]
+    [Route(ApiRoutes.Management.Users)] // -> "api/mng/users"
     public class UsersController : ControllerBase
     {
         private readonly MngDbContext _dbContext;
@@ -24,11 +27,11 @@ namespace DeleuzeMng.Controllers
             _httpClientFactory = httpClientFactory;
         }
 
-        // ==========================================
-        // 1. ユーザー作成 (Create)
-        // ==========================================
+        /// <summary>
+        /// ユーザー作成
+        /// </summary>
         [HttpPost]
-        public async Task<IActionResult> CreateUser(string tenantId, [FromBody] CreateUserRequest request)
+        public async Task<IActionResult> CreateUser([FromQuery] string tenantId, [FromBody] CreateUserRequest request)
         {
             if (string.IsNullOrWhiteSpace(tenantId) || request == null)
             {
@@ -44,11 +47,11 @@ namespace DeleuzeMng.Controllers
 
             var subjectId = Guid.NewGuid().ToString();
 
-            using var transaction = await _dbContext.Database.BeginTransactionAsync();
+            await using var transaction = await _dbContext.Database.BeginTransactionAsync();
 
             try
             {
-                // 管理DBへの保存
+                // 1. 管理DBへの保存
                 var mngUser = new MngUser
                 {
                     SubjectId = subjectId,
@@ -60,7 +63,7 @@ namespace DeleuzeMng.Controllers
                 _dbContext.Users.Add(mngUser);
                 await _dbContext.SaveChangesAsync();
 
-                // 認証API連携
+                // 2. 認証API連携 (Program.csで設定した AuthApiClient を利用)
                 var client = _httpClientFactory.CreateClient("AuthApiClient");
                 var authPayload = new
                 {
@@ -69,7 +72,9 @@ namespace DeleuzeMng.Controllers
                     Password = request.Password
                 };
 
-                var response = await client.PostAsJsonAsync("/api/auth/internal/users", authPayload);
+                // ApiRoutes 定数を用いて相対パスを作成 (BaseAddress: http://deleuze-auth:5001)
+                var authEndpoint = $"{ApiRoutes.Auth.InternalBase}/users"; // -> "api/auth/internal/users"
+                var response = await client.PostAsJsonAsync(authEndpoint, authPayload);
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -80,7 +85,7 @@ namespace DeleuzeMng.Controllers
 
                 await transaction.CommitAsync();
 
-                return CreatedAtAction(nameof(GetUserBySubjectId), new { tenantId, subjectId }, new
+                return CreatedAtAction(nameof(GetUserBySubjectId), new { subjectId }, new
                 {
                     subjectId,
                     loginId = request.LoginId,
@@ -95,21 +100,21 @@ namespace DeleuzeMng.Controllers
             }
         }
 
-        // ==========================================
-        // 2. ユーザー削除 (Delete)
-        // ==========================================
+        /// <summary>
+        /// ユーザー削除
+        /// </summary>
         [HttpDelete("{subjectId}")]
-        public async Task<IActionResult> DeleteUser(string tenantId, string subjectId)
+        public async Task<IActionResult> DeleteUser(string subjectId)
         {
-            if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(subjectId))
+            if (string.IsNullOrWhiteSpace(subjectId))
             {
-                return BadRequest("パラメーターが無効です。");
+                return BadRequest("subjectId は必須です。");
             }
 
             var user = await _dbContext.Users.FindAsync(subjectId);
             if (user == null) return NotFound("指定されたユーザーが存在しません。");
 
-            using var transaction = await _dbContext.Database.BeginTransactionAsync();
+            await using var transaction = await _dbContext.Database.BeginTransactionAsync();
 
             try
             {
@@ -119,11 +124,11 @@ namespace DeleuzeMng.Controllers
 
                 // 2. 認証APIを呼び出して認証DB側も削除
                 var client = _httpClientFactory.CreateClient("AuthApiClient");
-                var response = await client.DeleteAsync($"/api/auth/internal/users/{subjectId}");
+                var authEndpoint = $"{ApiRoutes.Auth.InternalBase}/users/{subjectId}"; // -> "api/auth/internal/users/{subjectId}"
+                var response = await client.DeleteAsync(authEndpoint);
 
                 if (!response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.NotFound)
                 {
-                    // 認証DB削除失敗時は管理DBの削除をロールバック
                     await transaction.RollbackAsync();
                     var error = await response.Content.ReadAsStringAsync();
                     return StatusCode((int)response.StatusCode, $"認証DBからの削除に失敗しました: {error}");
@@ -139,11 +144,11 @@ namespace DeleuzeMng.Controllers
             }
         }
 
-        // ==========================================
-        // 3. ユーザー取得 (Read)
-        // ==========================================
+        /// <summary>
+        /// ユーザー取得
+        /// </summary>
         [HttpGet("{subjectId}")]
-        public async Task<IActionResult> GetUserBySubjectId(string tenantId, string subjectId)
+        public async Task<IActionResult> GetUserBySubjectId(string subjectId)
         {
             var user = await _dbContext.Users.AsNoTracking().FirstOrDefaultAsync(u => u.SubjectId == subjectId);
             if (user == null) return NotFound("ユーザーが見つかりません。");
@@ -152,22 +157,24 @@ namespace DeleuzeMng.Controllers
         }
     }
 
-    [Route(ApiRoutes.Management.InternalBase)]
+    // ==========================================
+    // 2. 内部管理 API (api/mng/internal)
+    // ==========================================
+    [ApiController]
+    [Route(ApiRoutes.Management.InternalBase)] // -> "api/mng/internal"
     public class InternalMngController : ControllerBase
     {
-        private readonly MngDbContext _dbContext;
         private readonly IDbInitializerService _dbInitializer;
 
-        public InternalMngController(MngDbContext dbContext, IDbInitializerService dbInitializer)
+        public InternalMngController(IDbInitializerService dbInitializer)
         {
-            _dbContext = dbContext;
             _dbInitializer = dbInitializer;
         }
 
         /// <summary>
         /// DBの初期スキーマおよびテーブルを .sql ファイルから作成します。
         /// </summary>
-        [HttpPost("init")] // -> POST api/auth/internal/init
+        [HttpPost("init")] // -> POST api/mng/internal/init
         public async Task<IActionResult> InitializeDatabase()
         {
             try

@@ -13,6 +13,14 @@ using Dapper;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var authInternalUrl = builder.Configuration["AUTH_INTERNAL_URL"] ?? "http://localhost:5001";
+
+// AuthApiClient の登録
+builder.Services.AddHttpClient("AuthApiClient", client =>
+{
+    client.BaseAddress = new Uri(authInternalUrl);
+});
+
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.SetMinimumLevel(LogLevel.Information);

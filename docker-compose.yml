@@ -82,6 +82,7 @@ services:
       DOTNET_USE_POLLING_FILE_WATCHER: "true"
       ConnectionStrings__MngConnection: ${CONN_MNG_DB}
       ConnectionStrings__AuthConnection: ${CONN_AUTH_DB}
+      AUTH_INTERNAL_URL: ${AUTH_INTERNAL_URL}
       MANAGEMENT_API_SECRET: ${MANAGEMENT_API_SECRET}
       ENABLE_MNG_AUTH: ${ENABLE_MNG_AUTH}
       Services__Drive__InternalApiUrl: http://deleuze-drive:5003
