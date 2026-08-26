@@ -34,9 +34,9 @@ namespace DeleuzeMng.Controllers
             [FromBody] CreateTenantRequest request)
         {
             if (request == null ||
-                string.IsNullOrWhiteSpace(request.TenantName))
+                string.IsNullOrWhiteSpace(request.TenantId))
             {
-                return BadRequest("TenantName は必須です。");
+                return BadRequest("TenantId は必須です。");
             }
 
             var tenantId = request.TenantId;
@@ -69,8 +69,8 @@ namespace DeleuzeMng.Controllers
                     return Conflict(new
                     {
                         error = "TenantAlreadyExists",
-                        message = "指定されたテナント名は既に使用されています。",
-                        tenantName = request.TenantName
+                        message = "指定されたテナントIDは既に使用されています。",
+                        tenantName = request.TenantId
                     });
                 }
 
