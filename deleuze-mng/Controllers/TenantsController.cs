@@ -1,252 +1,252 @@
 using System;
-using System.Collections.Generic;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using DeleuzeMng.Services;
+using Microsoft.EntityFrameworkCore;
+using Deleuze.Shared.Constants;
+using DeleuzeMng.Data;
 using DeleuzeMng.Models;
-using Deleuze.Shared.Constants; // 共通定数を参照
 
 namespace DeleuzeMng.Controllers
 {
     [ApiController]
-    [Route(ApiRoutes.Management.Tenants)]
+    [Route("api/mng/tenants")]
     public class TenantsController : ControllerBase
     {
-        private readonly ITenantManagementService _tenantService;
+        private readonly MngDbContext _dbContext;
+        private readonly IHttpClientFactory _httpClientFactory;
 
-        public TenantsController(ITenantManagementService tenantService)
+        public TenantsController(
+            MngDbContext dbContext,
+            IHttpClientFactory httpClientFactory)
         {
-            _tenantService = tenantService;
+            _dbContext = dbContext;
+            _httpClientFactory = httpClientFactory;
         }
 
+        /// <summary>
+        /// テナント作成
+        /// POST /api/mng/tenants
+        /// </summary>
+        [HttpPost]
+        public async Task<IActionResult> CreateTenant(
+            [FromBody] CreateTenantRequest request)
+        {
+            if (request == null ||
+                string.IsNullOrWhiteSpace(request.TenantName))
+            {
+                return BadRequest("TenantName は必須です。");
+            }
+
+            var tenantId = request.TenantId;
+
+            await using var transaction =
+                await _dbContext.Database.BeginTransactionAsync();
+
+            try
+            {
+                // 1. Mng DBへ保存
+                var tenant = new Tenant
+                {
+                    TenantId = tenantId,
+                    TenantName = request.TenantName,
+                    DisplayName = request.DisplayName
+                };
+
+                _dbContext.Tenants.Add(tenant);
+
+                try
+                {
+                    await _dbContext.SaveChangesAsync();
+                }
+                catch (DbUpdateException ex)
+                    when (ex.InnerException is Npgsql.PostgresException pg &&
+                          pg.SqlState == "23505")
+                {
+                    await transaction.RollbackAsync();
+
+                    return Conflict(new
+                    {
+                        error = "TenantAlreadyExists",
+                        message = "指定されたテナント名は既に使用されています。",
+                        tenantName = request.TenantName
+                    });
+                }
+
+                // 2. Authへ同期
+                var client =
+                    _httpClientFactory.CreateClient("AuthApiClient");
+
+                var authPayload = new
+                {
+                    TenantId = tenantId
+                };
+
+                var authEndpoint =
+                    $"{ApiRoutes.Auth.InternalBase}/tenants";
+
+                var response = await client.PostAsJsonAsync(
+                    authEndpoint,
+                    authPayload);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    await transaction.RollbackAsync();
+
+                    var error =
+                        await response.Content.ReadAsStringAsync();
+
+                    return StatusCode(
+                        (int)response.StatusCode,
+                        $"認証DBへのテナント登録に失敗しました: {error}");
+                }
+
+                await transaction.CommitAsync();
+
+                return Created(
+                    $"/api/mng/tenants/{tenantId}",
+                    new
+                    {
+                        tenantId,
+                        tenantName = tenant.TenantName,
+                        displayName = tenant.DisplayName,
+                        createdAt = tenant.CreatedAt,
+                        updatedAt = tenant.UpdatedAt
+                    });
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+
+                return StatusCode(
+                    500,
+                    $"テナント作成中にエラーが発生しました: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// テナント一覧取得
+        /// GET /api/mng/tenants
+        /// </summary>
         [HttpGet]
         public async Task<IActionResult> GetTenants()
         {
-            var tenants = await _tenantService.GetTenantsAsync();
+            var tenants = await _dbContext.Tenants
+                .AsNoTracking()
+                .OrderBy(t => t.CreatedAt)
+                .Select(t => new
+                {
+                    tenantId = t.TenantId,
+                    tenantName = t.TenantName,
+                    displayName = t.DisplayName,
+                    createdAt = t.CreatedAt,
+                    updatedAt = t.UpdatedAt
+                })
+                .ToListAsync();
+
             return Ok(tenants);
         }
 
+        /// <summary>
+        /// テナント取得
+        /// GET /api/mng/tenants/{tenantId}
+        /// </summary>
         [HttpGet("{tenantId}")]
-        public async Task<IActionResult> GetTenantById(string tenantId)
+        public async Task<IActionResult> GetTenant(string tenantId)
         {
-            var tenant = await _tenantService.GetTenantByIdAsync(tenantId);
-            if (tenant is null)
+            var tenant = await _dbContext.Tenants
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t =>
+                    t.TenantId == tenantId);
+
+            if (tenant == null)
             {
-                return NotFound("該当するテナントが見つかりません。");
+                return NotFound("テナントが見つかりません。");
             }
 
-            return Ok(tenant);
+            return Ok(new
+            {
+                tenantId = tenant.TenantId,
+                tenantName = tenant.TenantName,
+                displayName = tenant.DisplayName,
+                createdAt = tenant.CreatedAt,
+                updatedAt = tenant.UpdatedAt
+            });
         }
 
-        [HttpPost]
-        public async Task<IActionResult> CreateTenant([FromBody] CreateTenantRequest request)
-        {
-            if (string.IsNullOrWhiteSpace(request.TenantId))
-            {
-                return BadRequest("TenantId は必須です。");
-            }
-
-            var success = await _tenantService.CreateTenantAsync(request.TenantId, request.Name ?? request.TenantId);
-            
-            if (request.Services != null && request.Services.Count > 0)
-            {
-                foreach (var serviceKey in request.Services)
-                {
-                    await _tenantService.EnableServiceForTenantAsync(request.TenantId, serviceKey);
-                }
-            }
-
-            return success ? Ok() : StatusCode(500, "テナントの作成に失敗しました。");
-        }
-
-        [HttpPost("{tenantId}/services")]
-        public async Task<IActionResult> EnableService(string tenantId, [FromBody] EnableServiceRequest request)
-        {
-            var success = await _tenantService.EnableServiceForTenantAsync(tenantId, request.ServiceKey);
-            return success ? Ok() : StatusCode(500, "サービスの有効化に失敗しました。");
-        }
-
-        [HttpDelete("{tenantId}/services")]
-        public async Task<IActionResult> DisableService(string tenantId, [FromBody] DisableServiceRequest request)
-        {
-            if (request == null || string.IsNullOrWhiteSpace(request.ServiceKey))
-            {
-                return BadRequest("ServiceKey は必須です。");
-            }
-
-            var success = await _tenantService.DisableServiceForTenantAsync(tenantId, request.ServiceKey);
-            return success ? Ok() : StatusCode(500, "サービスの無効化に失敗しました。");
-        }
-
-        // 指定テナントの全サービススキーマに対してマイグレーションを実行
-        [HttpPost("{tenantId}/migrate")]
-        public async Task<IActionResult> MigrateTenant(string tenantId)
-        {
-            if (string.IsNullOrWhiteSpace(tenantId))
-            {
-                return BadRequest("テナントIDが無効です。");
-            }
-
-            var result = await _tenantService.MigrateAllServicesForTenantAsync(tenantId);
-            
-            if (!result.Success)
-            {
-                return StatusCode(500, new
-                {
-                    error = $"テナント '{tenantId}' のマイグレーション処理中にエラーが発生しました。",
-                    failedServices = result.FailedServices
-                });
-            }
-
-            return Ok(new { message = $"Tenant '{tenantId}' migrated successfully across all services." });
-        }
-
-        [HttpPost("{tenantId}/migrate/{serviceKey}")]
-        public async Task<IActionResult> MigrateService(
-            string tenantId,
-            string serviceKey)
-        {
-            if (string.IsNullOrWhiteSpace(tenantId))
-            {
-                return BadRequest("テナントIDが無効です。");
-            }
-
-            if (string.IsNullOrWhiteSpace(serviceKey))
-            {
-                return BadRequest("ServiceKey は必須です。");
-            }
-
-            var success = await _tenantService
-                .MigrateServiceForTenantAsync(tenantId, serviceKey);
-
-            return success
-                ? Ok(new
-                {
-                    message = $"Tenant '{tenantId}' service '{serviceKey}' migrated successfully."
-                })
-                : StatusCode(500, new
-                {
-                    error = $"テナント '{tenantId}' のサービス '{serviceKey}' のマイグレーションに失敗しました。"
-                });
-        }
-
-        // マイグレーション履歴を取得するエンドポイント
-        [HttpGet("{tenantId}/migrations")]
-        public async Task<IActionResult> GetMigrations(string tenantId)
-        {
-            if (string.IsNullOrWhiteSpace(tenantId))
-            {
-                return BadRequest("テナントIDが無効です。");
-            }
-
-            try
-            {
-                var history = await _tenantService.GetTenantMigrationsAsync(tenantId);
-                return Ok(history);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { error = $"マイグレーション履歴の取得に失敗しました: {ex.Message}" });
-            }
-        }
-
-        // ヘルスチェックを実行するエンドポイント
-        [HttpGet("{tenantId}/health")]
-        public async Task<IActionResult> CheckHealth(string tenantId)
-        {
-            if (string.IsNullOrWhiteSpace(tenantId))
-            {
-                return BadRequest("テナントIDが無効です。");
-            }
-
-            try
-            {
-                var health = await _tenantService.CheckTenantHealthAsync(tenantId);
-                return Ok(health);
-            }
-            catch (Exception ex)
-            {
-                return Ok(new { dbStatus = "Unreachable", storageStatus = "Unreachable", message = ex.Message });
-            }
-        }
-
-        // テナントの現在のステータスを取得
-        [HttpGet("{tenantId}/status")]
-        public async Task<IActionResult> GetStatus(string tenantId)
-        {
-            if (string.IsNullOrWhiteSpace(tenantId))
-            {
-                return BadRequest("テナントIDが無効です。");
-            }
-
-            try
-            {
-                var tenant = await _tenantService.GetTenantByIdAsync(tenantId);
-
-                if (tenant is null)
-                {
-                    return NotFound("該当するテナントが見つかりません。");
-                }
-
-                var status = tenant.Status ?? "active";
-
-                return Ok(new
-                {
-                    tenantId = tenantId,
-                    status = status,
-                    isActive = string.Equals(
-                        status,
-                        "active",
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new
-                {
-                    error = $"テナント '{tenantId}' のステータス取得に失敗しました。",
-                    message = ex.Message
-                });
-            }
-        }
-        // テナントのステータス変更（一時停止 / 有効化）
-        [HttpPatch("{tenantId}/status")]
-        public async Task<IActionResult> UpdateStatus(string tenantId, [FromBody] UpdateStatusRequest request)
-        {
-            if (string.IsNullOrWhiteSpace(tenantId) || request == null)
-            {
-                return BadRequest("リクエストが無効です。");
-            }
-
-            var success = await _tenantService.UpdateTenantStatusAsync(tenantId, request.Status);
-            return success ? Ok(new { message = $"テナント '{tenantId}' のステータスを更新しました。" }) : StatusCode(500, "ステータスの更新に失敗しました。");
-        }
-
-        [HttpPost("{tenantId}/apikey")]
-        public async Task<IActionResult> GenerateApiKey(string tenantId)
-        {
-            var apiKey = await _tenantService.GenerateApiKeyAsync(tenantId);
-            return Ok(new { apiKey });
-        }
-
-        [HttpPatch("{tenantId}/authmode")]
-        public async Task<IActionResult> UpdateAuthMode(string tenantId, [FromBody] UpdateAuthModeRequest request)
-        {
-            var success = await _tenantService.UpdateAuthModeAsync(tenantId, (int)request.AuthMode);
-            return success ? Ok() : StatusCode(500, "認証モードの更新に失敗しました。");
-        }
-
+        /// <summary>
+        /// テナント削除
+        /// DELETE /api/mng/tenants/{tenantId}
+        /// </summary>
         [HttpDelete("{tenantId}")]
         public async Task<IActionResult> DeleteTenant(string tenantId)
         {
-            var success = await _tenantService.DeleteTenantAsync(tenantId);
-            return success ? Ok() : NotFound("該当するテナントが見つかりません。");
-        }
-    }
+            if (string.IsNullOrWhiteSpace(tenantId))
+            {
+                return BadRequest("tenantId は必須です。");
+            }
 
-    public class UpdateStatusRequest
-    {
-        public string Status { get; set; } = "active";
+            var tenant = await _dbContext.Tenants
+                .FirstOrDefaultAsync(t => t.TenantId == tenantId);
+
+            if (tenant == null)
+            {
+                return NotFound("指定されたテナントが存在しません。");
+            }
+
+            await using var transaction =
+                await _dbContext.Database.BeginTransactionAsync();
+
+            try
+            {
+                // 1. Auth側のテナントを削除
+                var client =
+                    _httpClientFactory.CreateClient("AuthApiClient");
+
+                var authEndpoint =
+                    $"{ApiRoutes.Auth.InternalBase}/tenants/{tenantId}";
+
+                var response =
+                    await client.DeleteAsync(authEndpoint);
+
+                if (!response.IsSuccessStatusCode &&
+                    response.StatusCode != System.Net.HttpStatusCode.NotFound)
+                {
+                    await transaction.RollbackAsync();
+
+                    var error =
+                        await response.Content.ReadAsStringAsync();
+
+                    return StatusCode(
+                        (int)response.StatusCode,
+                        $"認証DBからのテナント削除に失敗しました: {error}");
+                }
+
+                // 2. Mng側のユーザーを削除
+                var users = await _dbContext.Users
+                    .Where(u => u.TenantId == tenantId)
+                    .ToListAsync();
+
+                _dbContext.Users.RemoveRange(users);
+
+                // 3. Mng側のテナントを削除
+                _dbContext.Tenants.Remove(tenant);
+
+                await _dbContext.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+
+                return NoContent();
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+
+                return StatusCode(
+                    500,
+                    $"テナント削除中にエラーが発生しました: {ex.Message}");
+            }
+        }
     }
 }

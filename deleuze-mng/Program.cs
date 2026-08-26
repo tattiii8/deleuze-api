@@ -1,23 +1,25 @@
-using System;
-using System.Collections.Generic;
-using System.Security.Cryptography;
-using System.Text;
-using System.Threading.Tasks;
-using DeleuzeMng.Services;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
+
 using Microsoft.AspNetCore.HttpOverrides;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi.Models;
 using DeleuzeMng.Data;
+using DeleuzeMng.Services;
 using Deleuze.Shared.Constants;
-using Deleuze.Shared.Infrastructure;
-using IServiceProvisioningClient = Deleuze.Shared.Infrastructure.IServiceProvisioningClient;
 using Deleuze.Shared.Swagger;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using Dapper;
+
 
 var builder = WebApplication.CreateBuilder(args);
+
+var authInternalUrl = builder.Configuration["AUTH_INTERNAL_URL"] ?? "http://localhost:5001";
+
+// AuthApiClient の登録
+builder.Services.AddHttpClient("AuthApiClient", client =>
+{
+    client.BaseAddress = new Uri(authInternalUrl);
+});
 
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
@@ -35,11 +37,18 @@ builder.Services.AddCors(options =>
     });
 });
 
-var authConnectionString = builder.Configuration.GetConnectionString("AuthConnection")
-    ?? throw new InvalidOperationException("接続文字列 'AuthConnection' が設定されていません。");
+
+
+
 
 var mngConnectionString = builder.Configuration.GetConnectionString("MngConnection")
     ?? throw new InvalidOperationException("接続文字列 'MngConnection' が設定されていません。");
+
+    // Program.cs の builder.Services 付近
+builder.Services.AddDbContext<MngDbContext>(options =>
+    options.UseNpgsql(mngConnectionString));
+
+builder.Services.AddScoped<IDbInitializerService, DbInitializerService>();
 
 var enableMngAuth = builder.Configuration.GetValue<bool>("ENABLE_MNG_AUTH", true);
 var apiSecret = builder.Configuration["MANAGEMENT_API_SECRET"];
@@ -55,70 +64,12 @@ var driveServiceUrl = builder.Configuration["DRIVE_SERVICE_URL"] ?? "http://192.
 
 builder.Services.AddHttpClient();
 
-// 2. GenericHttpProvisioningClient を IServiceProvisioningClient として個別に DI 登録
-builder.Services.AddTransient<IServiceProvisioningClient>(sp =>
-{
-    var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient("AuthProvisioningClient");
-    return new GenericHttpProvisioningClient(httpClient, "auth", authServiceUrl, ApiRoutes.Auth.InternalBase);
-});
-
-builder.Services.AddTransient<IServiceProvisioningClient>(sp =>
-{
-    var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient("DriveProvisioningClient");
-    return new GenericHttpProvisioningClient(httpClient, "drive", driveServiceUrl, ApiRoutes.Drive.InternalBase);
-});
-
-
-// 3. TenantManagementService の DI 登録
-builder.Services.AddScoped<ITenantManagementService>(sp =>
-{
-    var clients = sp.GetRequiredService<IEnumerable<IServiceProvisioningClient>>();
-    var logger = sp.GetRequiredService<ILogger<TenantManagementService>>();
-
-    var serviceClients = new Dictionary<string, Func<string, Task<bool>>>();
-    var disableServiceClients = new Dictionary<string, Func<string, Task<bool>>>();
-    var migrateServiceClients = new Dictionary<string, Func<string, Task<bool>>>();
-
-    foreach (var client in clients)
-    {
-        serviceClients[client.ServiceKey] = async (tenantId) =>
-        {
-            await client.ProvisionTenantAsync(tenantId);
-            return true;
-        };
-
-        disableServiceClients[client.ServiceKey] = async (tenantId) =>
-        {
-            await client.DeprovisionTenantAsync(tenantId);
-            return true;
-        };
-
-        migrateServiceClients[client.ServiceKey] = async (tenantId) =>
-        {
-            await client.MigrateTenantAsync(tenantId);
-            return true;
-        };
-    }
-
-    return new TenantManagementService(
-        mngConnectionString,
-        authConnectionString, 
-        serviceClients, 
-        disableServiceClients,
-        migrateServiceClients,
-        logger
-    );
-});
-
-builder.Services.AddScoped<TenantManagementService>(sp => 
-    (TenantManagementService)sp.GetRequiredService<ITenantManagementService>());
-
 builder.Services.AddControllers();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "deleuze-mng API", Version = "v1" });
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "deleuze- API", Version = "v1" });
 
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
@@ -152,6 +103,9 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.KnownProxies.Clear();
 });
 
+builder.Services.AddDbContext<MngDbContext>(options =>
+    options.UseNpgsql(mngConnectionString));
+
 var app = builder.Build();
 
 app.UseForwardedHeaders();
@@ -161,75 +115,30 @@ app.UseCors();
 
 if (!enableMngAuth)
 {
-    app.Logger.LogWarning("[MNG-AUTH] 🔥 管理APIのワンタイムトークン認証 (ENABLE_MNG_AUTH) は無効化されています。");
+    app.Logger.LogWarning("[MNG-AUTH] 管理APIのワンタイムトークン認証は無効化されています。");
 }
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
 // Swagger 設定
-app.UseDeleuzeSwagger(app.Environment, builder.Configuration, ApiRoutes.Management.Base, "deleuze-mng API");
-
-await DbInitializer.EnsureSeedDataAsync(authConnectionString);
-
-// 🔒 トークン検証ミドルウェア
-app.Use(async (context, next) =>
+if (app.Environment.IsDevelopment())
 {
-    if (context.Request.Path.Value?.Contains("swagger", StringComparison.OrdinalIgnoreCase) == true)
+    // 開発環境では標準の Swagger / Swagger UI を有効化
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
     {
-        await next();
-        return;
-    }
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "deleuze-mng API v1");
+        c.RoutePrefix = "swagger"; // http://localhost:5002/swagger でアクセス可能
+    });
+}
+else
+{
+    // 本番・Nomad環境用（プレフィックス付きルーティング）
+    app.UseDeleuzeSwagger(app.Environment, builder.Configuration, ApiRoutes.Management.Base, "deleuze-mng API");
+}
 
-    if (enableMngAuth)
-    {
-        if (!context.Request.Headers.TryGetValue("Authorization", out var extractedToken))
-        {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            await context.Response.WriteAsJsonAsync(new { error = "Authorization ヘッダーがありません。" });
-            return;
-        }
-
-        string rawToken = extractedToken.ToString();
-        var (isValid, reason) = ValidateDynamicTokenWithReason(rawToken, apiSecret!, TimeSpan.FromMinutes(5));
-
-        if (!isValid)
-        {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            await context.Response.WriteAsJsonAsync(new { error = "認証トークンが無効、または有効期限切れです。" });
-            return;
-        }
-    }
-
-    await next();
-});
 
 app.MapControllers();
 
 app.Run();
-
-static (bool IsValid, string Reason) ValidateDynamicTokenWithReason(string rawToken, string secretKey, TimeSpan validDuration)
-{
-    if (string.IsNullOrWhiteSpace(rawToken)) return (false, "トークンが空です。");
-    if (rawToken.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) rawToken = rawToken[7..].Trim();
-    var parts = rawToken.Split(':');
-    if (parts.Length != 2) return (false, "トークンのフォーマットが不正です。");
-
-    try
-    {
-        var secretBytes = Encoding.UTF8.GetBytes(secretKey);
-        using var hmac = new HMACSHA256(secretBytes);
-        var expectedSignatureBytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(parts[0]));
-        var providedSignatureBytes = Convert.FromBase64String(parts[1]);
-        if (!CryptographicOperations.FixedTimeEquals(providedSignatureBytes, expectedSignatureBytes)) return (false, "署名が一致しません。");
-
-        var payload = Encoding.UTF8.GetString(Convert.FromBase64String(parts[0])).Split('|');
-        if (!long.TryParse(payload[0], out long unixTimestamp)) return (false, "タイムスタンプ不正。");
-        
-        var tokenTime = DateTimeOffset.FromUnixTimeSeconds(unixTimestamp);
-        if (tokenTime > DateTimeOffset.UtcNow.AddMinutes(5) || DateTimeOffset.UtcNow - tokenTime > validDuration) return (false, "期限切れまたは時刻不正。");
-
-        return (true, "成功");
-    }
-    catch { return (false, "検証中に例外が発生しました。"); }
-}

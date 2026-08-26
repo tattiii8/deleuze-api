@@ -24,16 +24,10 @@ public static class ApiRoutes
         public const string Token = "connect/token";
     }
 
-    public static class Drive
-    {
-        public const string Base = Prefix + "/drive";
-        public const string InternalBase = Base + "/internal"; // -> "api/drive/internal"
-    }
-
-　　public static class Management
+    public static class Management
     {
         public const string Base = Prefix + "/mng";            // -> "api/mng"
-
+        public const string InternalBase = Base + "/internal";
         public const string System = Base + "/system";         // -> "api/mng/system"
         public const string Tenants = Base + "/tenants";       // -> "api/mng/tenants"
         public const string Users = Base + "/users";           // -> "api/mng/users"
