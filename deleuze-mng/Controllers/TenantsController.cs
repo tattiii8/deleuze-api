@@ -50,7 +50,7 @@ namespace DeleuzeMng.Controllers
                 var tenant = new Tenant
                 {
                     TenantId = tenantId,
-                    TenantName = request.TenantName,
+                    TenantName = tenantId,
                     DisplayName = request.DisplayName
                 };
 
