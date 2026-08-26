@@ -5,9 +5,7 @@ on:
     branches: [ main ]
     paths:
       - 'deleuze-auth/**'
-      - 'deleuze-app/**'
       - 'deleuze-mng/**'
-      - 'deleuze-drive/**'
       - 'deleuze-shared/**' # ★ deleuze-shared の変更も検知対象に追加
       - '.github/workflows/**'
   workflow_dispatch:
@@ -21,9 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       auth:  ${{ steps.filter.outputs.auth }}
-      app:   ${{ steps.filter.outputs.app }}
       mng:   ${{ steps.filter.outputs.mng }}
-      drive: ${{ steps.filter.outputs.drive }}
     steps:
     - uses: actions/checkout@v4
     - uses: dorny/paths-filter@v3
@@ -31,9 +27,7 @@ jobs:
       with:
         filters: |
           auth:  ['deleuze-auth/**', 'deleuze-shared/**']
-          app:   ['deleuze-app/**', 'deleuze-shared/**']
           mng:   ['deleuze-mng/**', 'deleuze-shared/**']
-          drive: ['deleuze-drive/**', 'deleuze-shared/**']
 
   build-and-push:
     needs: changes
@@ -71,18 +65,6 @@ jobs:
           ${{ env.ECR_REGISTRY }}/deleuze-auth:latest
           ${{ env.ECR_REGISTRY }}/deleuze-auth:${{ github.sha }}
 
-    - name: Build and Push deleuze-app
-      if: ${{ needs.changes.outputs.app == 'true' || github.event_name == 'workflow_dispatch' }}
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: ./deleuze-app/Dockerfile
-        platforms: linux/amd64
-        push: true
-        tags: |
-          ${{ env.ECR_REGISTRY }}/deleuze-app:latest
-          ${{ env.ECR_REGISTRY }}/deleuze-app:${{ github.sha }}
-
     - name: Build and Push deleuze-mng
       if: ${{ needs.changes.outputs.mng == 'true' || github.event_name == 'workflow_dispatch' }}
       uses: docker/build-push-action@v5
@@ -94,15 +76,3 @@ jobs:
         tags: |
           ${{ env.ECR_REGISTRY }}/deleuze-mng:latest
           ${{ env.ECR_REGISTRY }}/deleuze-mng:${{ github.sha }}
-
-    - name: Build and Push deleuze-drive
-      if: ${{ needs.changes.outputs.drive == 'true' || github.event_name == 'workflow_dispatch' }}
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: ./deleuze-drive/Dockerfile
-        platforms: linux/amd64
-        push: true
-        tags: |
-          ${{ env.ECR_REGISTRY }}/deleuze-drive:latest
-          ${{ env.ECR_REGISTRY }}/deleuze-drive:${{ github.sha }}
