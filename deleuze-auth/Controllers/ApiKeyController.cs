@@ -132,6 +132,98 @@ namespace DeleuzeAuth.Controllers
             });
         }
 
+
+
+        /// <summary>
+        /// 管理コンソールからAPI Keyを発行します。
+        /// JWTは不要です。
+        ///
+        /// POST /api/auth/admin/apikey
+        /// </summary>
+        [AllowAnonymous]
+        [HttpPost("admin/apikey")]
+        public async Task<IActionResult> CreateAdminApiKey(
+            [FromBody] AdminCreateApiKeyRequest request)
+        {
+            // ==========================================
+            // 1. リクエストチェック
+            // ==========================================
+            if (request == null ||
+                string.IsNullOrWhiteSpace(request.TenantId) ||
+                string.IsNullOrWhiteSpace(request.LoginId) ||
+                string.IsNullOrWhiteSpace(request.Name))
+            {
+                return BadRequest(new
+                {
+                    error = "InvalidRequest",
+                    message = "tenantId, loginId, name は必須です。"
+                });
+            }
+
+            // ==========================================
+            // 2. TenantId + LoginId からユーザー取得
+            // ==========================================
+            var user = await _dbContext.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u =>
+                    u.TenantId == request.TenantId &&
+                    u.LoginId == request.LoginId);
+
+            if (user == null)
+            {
+                return NotFound(new
+                {
+                    error = "UserNotFound",
+                    message = "指定されたユーザーが存在しません。"
+                });
+            }
+
+            // ==========================================
+            // 3. API Key生成
+            // ==========================================
+            var apiKey = GenerateApiKey();
+
+            // DBにはハッシュのみ保存
+            var keyHash = HashApiKey(apiKey);
+
+            // ==========================================
+            // 4. API Key保存
+            // ==========================================
+            var entity = new ApiKey
+            {
+                Id = Guid.NewGuid(),
+
+                // DBから取得したSubjectIdを使用
+                SubjectId = user.SubjectId,
+
+                // DBから取得したTenantIdを使用
+                TenantId = user.TenantId,
+
+                KeyHash = keyHash,
+                Name = request.Name,
+                CreatedAt = DateTimeOffset.UtcNow,
+                ExpiresAt = request.ExpiresAt,
+                RevokedAt = null
+            };
+
+            _dbContext.ApiKeys.Add(entity);
+
+            await _dbContext.SaveChangesAsync();
+
+            // ==========================================
+            // 5. API Keyは発行時のみ平文を返す
+            // ==========================================
+            return Ok(new
+            {
+                id = entity.Id,
+                name = entity.Name,
+                apiKey,
+                createdAt = entity.CreatedAt,
+                expiresAt = entity.ExpiresAt
+            });
+        }
+
+
         /// <summary>
         /// 現在のユーザーが発行したAPI Key一覧を取得します。
         /// </summary>
