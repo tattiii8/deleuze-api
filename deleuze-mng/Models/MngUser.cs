@@ -12,6 +12,10 @@ namespace DeleuzeMng.Models
         public string SubjectId { get; set; } = string.Empty;
 
         [Required]
+        [Column("tenant_id")]
+        public string TenantId { get; set; } = string.Empty;
+
+        [Required]
         [Column("login_id")]
         public string LoginId { get; set; } = string.Empty;
 

@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Dapper;
 using DeleuzeMng.Models;
@@ -8,7 +7,9 @@ namespace DeleuzeMng.Data
 {
     public class MngDbContext : DbContext
     {
-        public MngDbContext(DbContextOptions<MngDbContext> options) : base(options)
+        public MngDbContext(
+            DbContextOptions<MngDbContext> options)
+            : base(options)
         {
         }
 
@@ -18,22 +19,29 @@ namespace DeleuzeMng.Data
         // 必要に応じて他の管理用エンティティ（Tenants等）を追加
         // public DbSet<Tenant> Tenants { get; set; } = null!;
 
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        protected override void OnModelCreating(
+            ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
 
-            // スキーマ指定やインデックス等の詳細設定
             modelBuilder.Entity<MngUser>(entity =>
             {
-                // テーブル名とスキーマの設定 (Attribute指定がない場合の明示設定)
+                // テーブル
                 entity.ToTable("users", schema: "mng");
 
-                // 主キーの設定
+                // 主キー
                 entity.HasKey(e => e.SubjectId);
 
-                // login_id のユニーク制約（同名ログインIDの重複防止）
-                entity.HasIndex(e => e.LoginId)
-                      .IsUnique();
+                // tenant_id + login_id の複合ユニーク制約
+                //
+                // 同じテナント内では login_id は一意
+                // 別テナントなら同じ login_id を使用可能
+                entity.HasIndex(e => new
+                {
+                    e.TenantId,
+                    e.LoginId
+                })
+                .IsUnique();
 
                 // email のユニーク制約
                 entity.HasIndex(e => e.Email)

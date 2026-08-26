@@ -12,16 +12,23 @@ using DeleuzeMng.Services;
 namespace DeleuzeMng.Controllers
 {
     // ==========================================
-    // 1. 公開ユーザー管理 API (api/mng/users)
+    // 1. ユーザー管理 API
+    //
+    // POST   /api/mng/tenants/{tenantId}/users
+    // GET    /api/mng/tenants/{tenantId}/users
+    // GET    /api/mng/tenants/{tenantId}/users/{subjectId}
+    // DELETE /api/mng/tenants/{tenantId}/users/{subjectId}
     // ==========================================
     [ApiController]
-    [Route(ApiRoutes.Management.Users)] // -> "api/mng/users"
+    [Route(ApiRoutes.Management.Users)]
     public class UsersController : ControllerBase
     {
         private readonly MngDbContext _dbContext;
         private readonly IHttpClientFactory _httpClientFactory;
 
-        public UsersController(MngDbContext dbContext, IHttpClientFactory httpClientFactory)
+        public UsersController(
+            MngDbContext dbContext,
+            IHttpClientFactory httpClientFactory)
         {
             _dbContext = dbContext;
             _httpClientFactory = httpClientFactory;
@@ -29,10 +36,11 @@ namespace DeleuzeMng.Controllers
 
         /// <summary>
         /// ユーザー作成
+        /// POST /api/mng/tenants/{tenantId}/users
         /// </summary>
-        [HttpPost]
+        [HttpPost("/api/mng/tenants/{tenantId}/users")]
         public async Task<IActionResult> CreateUser(
-            [FromQuery] string tenantId,
+            string tenantId,
             [FromBody] CreateUserRequest request)
         {
             if (string.IsNullOrWhiteSpace(tenantId) || request == null)
@@ -58,6 +66,7 @@ namespace DeleuzeMng.Controllers
                 var mngUser = new MngUser
                 {
                     SubjectId = subjectId,
+                    TenantId = tenantId,
                     LoginId = request.LoginId,
                     UserName = request.UserName,
                     Email = request.Email
@@ -71,24 +80,27 @@ namespace DeleuzeMng.Controllers
                 }
                 catch (DbUpdateException ex)
                     when (ex.InnerException is Npgsql.PostgresException pg &&
-                        pg.SqlState == "23505")
+                          pg.SqlState == "23505")
                 {
                     await transaction.RollbackAsync();
 
                     return Conflict(new
                     {
                         error = "UserAlreadyExists",
-                        message = "指定された login_id は既に使用されています。",
+                        message = "指定されたテナントでは、この login_id は既に使用されています。",
+                        tenantId,
                         loginId = request.LoginId
                     });
                 }
 
                 // 2. 認証API連携
-                var client = _httpClientFactory.CreateClient("AuthApiClient");
+                var client =
+                    _httpClientFactory.CreateClient("AuthApiClient");
 
                 var authPayload = new
                 {
                     SubjectId = subjectId,
+                    TenantId = tenantId,
                     LoginId = request.LoginId,
                     Password = request.Password
                 };
@@ -105,7 +117,8 @@ namespace DeleuzeMng.Controllers
                 {
                     await transaction.RollbackAsync();
 
-                    var error = await response.Content.ReadAsStringAsync();
+                    var error =
+                        await response.Content.ReadAsStringAsync();
 
                     return StatusCode(
                         (int)response.StatusCode,
@@ -117,10 +130,15 @@ namespace DeleuzeMng.Controllers
 
                 return CreatedAtAction(
                     nameof(GetUserBySubjectId),
-                    new { subjectId },
+                    new
+                    {
+                        tenantId,
+                        subjectId
+                    },
                     new
                     {
                         subjectId,
+                        tenantId,
                         loginId = request.LoginId,
                         userName = request.UserName,
                         email = request.Email
@@ -137,85 +155,175 @@ namespace DeleuzeMng.Controllers
         }
 
         /// <summary>
-        /// ユーザー削除
+        /// テナントのユーザー一覧取得
+        /// GET /api/mng/tenants/{tenantId}/users
         /// </summary>
-        [HttpDelete("{subjectId}")]
-        public async Task<IActionResult> DeleteUser(string subjectId)
+        [HttpGet("/api/mng/tenants/{tenantId}/users")]
+        public async Task<IActionResult> GetUsers(string tenantId)
         {
-            if (string.IsNullOrWhiteSpace(subjectId))
+            if (string.IsNullOrWhiteSpace(tenantId))
             {
-                return BadRequest("subjectId は必須です。");
+                return BadRequest("tenantId は必須です。");
             }
 
-            var user = await _dbContext.Users.FindAsync(subjectId);
-            if (user == null) return NotFound("指定されたユーザーが存在しません。");
+            var users = await _dbContext.Users
+                .AsNoTracking()
+                .Where(u => u.TenantId == tenantId)
+                .OrderBy(u => u.CreatedAt)
+                .Select(u => new
+                {
+                    subjectId = u.SubjectId,
+                    tenantId = u.TenantId,
+                    loginId = u.LoginId,
+                    userName = u.UserName,
+                    email = u.Email,
+                    createdAt = u.CreatedAt,
+                    updatedAt = u.UpdatedAt
+                })
+                .ToListAsync();
 
-            await using var transaction = await _dbContext.Database.BeginTransactionAsync();
+            return Ok(users);
+        }
+
+        /// <summary>
+        /// テナントのユーザー取得
+        /// GET /api/mng/tenants/{tenantId}/users/{subjectId}
+        /// </summary>
+        [HttpGet("/api/mng/tenants/{tenantId}/users/{subjectId}")]
+        public async Task<IActionResult> GetUserBySubjectId(
+            string tenantId,
+            string subjectId)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId) ||
+                string.IsNullOrWhiteSpace(subjectId))
+            {
+                return BadRequest(
+                    "tenantId と subjectId は必須です。");
+            }
+
+            var user = await _dbContext.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u =>
+                    u.TenantId == tenantId &&
+                    u.SubjectId == subjectId);
+
+            if (user == null)
+            {
+                return NotFound("ユーザーが見つかりません。");
+            }
+
+            return Ok(new
+            {
+                subjectId = user.SubjectId,
+                tenantId = user.TenantId,
+                loginId = user.LoginId,
+                userName = user.UserName,
+                email = user.Email,
+                createdAt = user.CreatedAt,
+                updatedAt = user.UpdatedAt
+            });
+        }
+
+        /// <summary>
+        /// テナントのユーザー削除
+        /// DELETE /api/mng/tenants/{tenantId}/users/{subjectId}
+        /// </summary>
+        [HttpDelete("/api/mng/tenants/{tenantId}/users/{subjectId}")]
+        public async Task<IActionResult> DeleteUser(
+            string tenantId,
+            string subjectId)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId) ||
+                string.IsNullOrWhiteSpace(subjectId))
+            {
+                return BadRequest(
+                    "tenantId と subjectId は必須です。");
+            }
+
+            var user = await _dbContext.Users
+                .FirstOrDefaultAsync(u =>
+                    u.TenantId == tenantId &&
+                    u.SubjectId == subjectId);
+
+            if (user == null)
+            {
+                return NotFound(
+                    "指定されたテナントにユーザーが存在しません。");
+            }
+
+            await using var transaction =
+                await _dbContext.Database.BeginTransactionAsync();
 
             try
             {
-                // 1. 管理DBからの削除
+                // 1. 管理DBから削除
                 _dbContext.Users.Remove(user);
                 await _dbContext.SaveChangesAsync();
 
-                // 2. 認証APIを呼び出して認証DB側も削除
-                var client = _httpClientFactory.CreateClient("AuthApiClient");
-                var authEndpoint = $"{ApiRoutes.Auth.InternalBase}/users/{subjectId}"; // -> "api/auth/internal/users/{subjectId}"
-                var response = await client.DeleteAsync(authEndpoint);
+                // 2. Auth APIから削除
+                var client =
+                    _httpClientFactory.CreateClient("AuthApiClient");
 
-                if (!response.IsSuccessStatusCode && response.StatusCode != System.Net.HttpStatusCode.NotFound)
+                var authEndpoint =
+                    $"{ApiRoutes.Auth.InternalBase}/users/{subjectId}";
+
+                var response =
+                    await client.DeleteAsync(authEndpoint);
+
+                if (!response.IsSuccessStatusCode &&
+                    response.StatusCode != System.Net.HttpStatusCode.NotFound)
                 {
                     await transaction.RollbackAsync();
-                    var error = await response.Content.ReadAsStringAsync();
-                    return StatusCode((int)response.StatusCode, $"認証DBからの削除に失敗しました: {error}");
+
+                    var error =
+                        await response.Content.ReadAsStringAsync();
+
+                    return StatusCode(
+                        (int)response.StatusCode,
+                        $"認証DBからの削除に失敗しました: {error}");
                 }
 
                 await transaction.CommitAsync();
-                return NoContent(); // 204 Success
+
+                return NoContent();
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                return StatusCode(500, $"ユーザー削除中にエラーが発生しました: {ex.Message}");
+
+                return StatusCode(
+                    500,
+                    $"ユーザー削除中にエラーが発生しました: {ex.Message}");
             }
-        }
-
-        /// <summary>
-        /// ユーザー取得
-        /// </summary>
-        [HttpGet("{subjectId}")]
-        public async Task<IActionResult> GetUserBySubjectId(string subjectId)
-        {
-            var user = await _dbContext.Users.AsNoTracking().FirstOrDefaultAsync(u => u.SubjectId == subjectId);
-            if (user == null) return NotFound("ユーザーが見つかりません。");
-
-            return Ok(user);
         }
     }
 
     // ==========================================
-    // 2. 内部管理 API (api/mng/internal)
+    // 2. 内部管理 API
     // ==========================================
     [ApiController]
-    [Route(ApiRoutes.Management.InternalBase)] // -> "api/mng/internal"
+    [Route(ApiRoutes.Management.InternalBase)]
     public class InternalMngController : ControllerBase
     {
         private readonly IDbInitializerService _dbInitializer;
 
-        public InternalMngController(IDbInitializerService dbInitializer)
+        public InternalMngController(
+            IDbInitializerService dbInitializer)
         {
             _dbInitializer = dbInitializer;
         }
 
         /// <summary>
-        /// DBの初期スキーマおよびテーブルを .sql ファイルから作成します。
+        /// DBの初期スキーマおよびテーブルを
+        /// .sqlファイルから作成します。
         /// </summary>
-        [HttpPost("init")] // -> POST api/mng/internal/init
+        [HttpPost("init")]
         public async Task<IActionResult> InitializeDatabase()
         {
             try
             {
                 await _dbInitializer.ExecuteInitSqlAsync();
+
                 return Ok(new
                 {
                     message = "mng スキーマおよび初期テーブルの作成が完了しました。",
