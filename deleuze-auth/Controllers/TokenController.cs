@@ -9,6 +9,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
+using Deleuze.Shared.Constants;
+
 using DeleuzeAuth.Data;
 using DeleuzeAuth.Models;
 
@@ -21,7 +23,7 @@ namespace DeleuzeAuth.Controllers
     /// </summary>
     [ApiController]
     [AllowAnonymous]
-    [Route("api/auth")]
+    [Route(ApiRoutes.Auth.Base)]
     public class TokenController : ControllerBase
     {
         private readonly AuthDbContext _dbContext;
