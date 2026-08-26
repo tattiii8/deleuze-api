@@ -46,3 +46,27 @@ CREATE TABLE IF NOT EXISTS auth.tenants (
     CONSTRAINT pk_auth_tenants
         PRIMARY KEY (tenant_id)
 );
+
+
+CREATE TABLE IF NOT EXISTS auth.apikeys (
+    id UUID NOT NULL,
+    subject_id VARCHAR(255) NOT NULL,
+    tenant_id VARCHAR(255) NOT NULL,
+    key_hash VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMPTZ NULL,
+    revoked_at TIMESTAMPTZ NULL,
+
+    CONSTRAINT pk_auth_apikeys
+        PRIMARY KEY (id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_apikeys_key_hash
+    ON auth.apikeys (key_hash);
+
+CREATE INDEX IF NOT EXISTS idx_auth_apikeys_subject_id
+    ON auth.apikeys (subject_id);
+
+CREATE INDEX IF NOT EXISTS idx_auth_apikeys_tenant_id
+    ON auth.apikeys (tenant_id);

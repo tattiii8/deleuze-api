@@ -10,6 +10,9 @@ using DeleuzeAuth.Data;
 using DeleuzeAuth.Services;
 using Deleuze.Shared.Constants;
 using Deleuze.Shared.Swagger;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -46,19 +49,61 @@ builder.Services.AddSingleton<TokenGenerator>(); // RSA 鍵の生成
 // 3. コントローラーの有効化
 builder.Services.AddControllers();
 
+// JWT Authentication
+var jwtKey = builder.Configuration["Jwt:Key"];
+
+if (string.IsNullOrWhiteSpace(jwtKey))
+{
+    throw new InvalidOperationException(
+        "Jwt:Key が設定されていません。");
+}
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters =
+            new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidIssuer = builder.Configuration["Jwt:Issuer"],
+
+                ValidateAudience = true,
+                ValidAudience = builder.Configuration["Jwt:Audience"],
+
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey =
+                    new SymmetricSecurityKey(
+                        Encoding.UTF8.GetBytes(jwtKey)),
+
+                ValidateLifetime = true,
+
+                ClockSkew = TimeSpan.FromMinutes(1)
+            };
+    });
+
+builder.Services.AddAuthorization();
+
 // 4. Swagger Generator の設定 (mng と統一)
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "deleuze-auth API", Version = "v1" });
+    c.SwaggerDoc(
+        "v1",
+        new OpenApiInfo
+        {
+            Title = "deleuze-auth API",
+            Version = "v1"
+        });
 
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "シークレットキーを入力してください。",
+        Description = "JWTアクセストークンを入力してください。",
         Name = "Authorization",
         In = ParameterLocation.Header,
-        Type = SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT"
     });
 
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
@@ -95,6 +140,9 @@ app.UseForwardedHeaders();
 
 // ミドルウェア パイプライン
 app.UseCors();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 // 5. Swagger 設定 (mng と同様に IsDevelopment による分岐を導入)
 if (app.Environment.IsDevelopment())
