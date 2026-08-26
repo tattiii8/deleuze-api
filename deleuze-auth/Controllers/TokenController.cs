@@ -40,7 +40,7 @@ namespace DeleuzeAuth.Controllers
         /// <summary>
         /// アクセストークンを発行します。
         /// </summary>
-        [HttpPost("/connect/token")]
+        [HttpPost("connect/token")]
         public async Task<IActionResult> IssueToken(
             [FromBody] IssueTokenRequest request)
         {
