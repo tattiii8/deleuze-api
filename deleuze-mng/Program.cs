@@ -141,4 +141,14 @@ else
 
 app.MapControllers();
 
+builder.Services.AddScoped<IDbInitializerService, DbInitializerService>();
+
+using (var scope = app.Services.CreateScope())
+{
+    var initializer = scope.ServiceProvider
+        .GetRequiredService<IDbInitializerService>();
+
+    await initializer.ExecuteWithRetryAsync();
+}
+
 app.Run();

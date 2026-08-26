@@ -41,7 +41,6 @@ if (string.IsNullOrWhiteSpace(authConnectionString))
 builder.Services.AddDbContext<AuthDbContext>(options =>
     options.UseNpgsql(authConnectionString));
 
-builder.Services.AddScoped<IDbInitializerService, DbInitializerService>();
 
 builder.Services.AddSingleton<IPasswordHasher, BCryptPasswordHasher>();
 builder.Services.AddSingleton<TokenGenerator>(); // RSA 鍵の生成
@@ -132,6 +131,8 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.KnownProxies.Clear();
 });
 
+builder.Services.AddScoped<IDbInitializerService, DbInitializerService>();
+
 var app = builder.Build();
 
 app.UseForwardedHeaders();
@@ -163,5 +164,16 @@ else
 
 // コントローラーへのルーティングを有効化
 app.MapControllers();
+
+
+
+
+using (var scope = app.Services.CreateScope())
+{
+    var initializer = scope.ServiceProvider
+        .GetRequiredService<IDbInitializerService>();
+
+    await initializer.ExecuteWithRetryAsync();
+}
 
 app.Run();
