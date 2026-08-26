@@ -42,7 +42,7 @@ builder.Services.AddCors(options =>
 
 
 var mngConnectionString = builder.Configuration.GetConnectionString("MngConnection")
-    ?? throw new InvalidOperationException("接続文字列 'MngConnection' が設定されていません。");
+    ?? throw new InvalidOperationException("接続文字列 'MngConnection' が設定されていません");
 
     // Program.cs の builder.Services 付近
 builder.Services.AddDbContext<MngDbContext>(options =>
