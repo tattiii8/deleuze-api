@@ -26,7 +26,15 @@ builder.Services.AddCors(options =>
 
 // 2. データベース・サービスの登録 (DI)
 // 変数名を authConnectionString にそろえる場合
-var authConnectionString = builder.Configuration.GetConnectionString("authConnectionString");
+var authConnectionString =
+    builder.Configuration.GetConnectionString("AuthConnection");
+
+if (string.IsNullOrWhiteSpace(authConnectionString))
+{
+    throw new InvalidOperationException(
+        "ConnectionStrings:AuthConnection が設定されていません。");
+}
+
 builder.Services.AddDbContext<AuthDbContext>(options =>
     options.UseNpgsql(authConnectionString));
 
