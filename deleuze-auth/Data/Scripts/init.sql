@@ -38,3 +38,11 @@ CREATE TRIGGER trg_auth_users_updated_at
     BEFORE UPDATE ON auth.users
     FOR EACH ROW
     EXECUTE FUNCTION auth.update_updated_at_column();
+
+    -- auth.tenants
+CREATE TABLE IF NOT EXISTS auth.tenants (
+    tenant_id VARCHAR(255) NOT NULL,
+
+    CONSTRAINT pk_auth_tenants
+        PRIMARY KEY (tenant_id)
+);

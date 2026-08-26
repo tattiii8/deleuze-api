@@ -1,6 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
-using Dapper;
 using DeleuzeMng.Models;
 
 namespace DeleuzeMng.Data
@@ -13,29 +11,24 @@ namespace DeleuzeMng.Data
         {
         }
 
-        // mng.users テーブルに対応する DbSet
         public DbSet<MngUser> Users { get; set; } = null!;
 
-        // 必要に応じて他の管理用エンティティ（Tenants等）を追加
-        // public DbSet<Tenant> Tenants { get; set; } = null!;
+        public DbSet<Tenant> Tenants { get; set; } = null!;
 
         protected override void OnModelCreating(
             ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
 
+            // =========================
+            // mng.users
+            // =========================
             modelBuilder.Entity<MngUser>(entity =>
             {
-                // テーブル
-                entity.ToTable("users", schema: "mng");
+                entity.ToTable("users", "mng");
 
-                // 主キー
                 entity.HasKey(e => e.SubjectId);
 
-                // tenant_id + login_id の複合ユニーク制約
-                //
-                // 同じテナント内では login_id は一意
-                // 別テナントなら同じ login_id を使用可能
                 entity.HasIndex(e => new
                 {
                     e.TenantId,
@@ -43,9 +36,21 @@ namespace DeleuzeMng.Data
                 })
                 .IsUnique();
 
-                // email のユニーク制約
                 entity.HasIndex(e => e.Email)
-                      .IsUnique();
+                    .IsUnique();
+            });
+
+            // =========================
+            // mng.tenants
+            // =========================
+            modelBuilder.Entity<Tenant>(entity =>
+            {
+                entity.ToTable("tenants", "mng");
+
+                entity.HasKey(e => e.TenantId);
+
+                entity.HasIndex(e => e.TenantName)
+                    .IsUnique();
             });
         }
     }

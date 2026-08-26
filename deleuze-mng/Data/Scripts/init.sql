@@ -48,3 +48,34 @@ CREATE TRIGGER trg_mng_users_updated_at
     BEFORE UPDATE ON mng.users
     FOR EACH ROW
     EXECUTE FUNCTION mng.update_updated_at_column();
+
+    -- mng.tenants
+CREATE TABLE IF NOT EXISTS mng.tenants (
+    tenant_id    VARCHAR(255) NOT NULL,
+    tenant_name  VARCHAR(255) NOT NULL,
+    display_name VARCHAR(255),
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT pk_mng_tenants
+        PRIMARY KEY (tenant_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mng_tenants_tenant_name
+    ON mng.tenants (tenant_name);
+
+CREATE OR REPLACE FUNCTION mng.update_tenants_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE 'plpgsql';
+
+DROP TRIGGER IF EXISTS trg_mng_tenants_updated_at
+    ON mng.tenants;
+
+CREATE TRIGGER trg_mng_tenants_updated_at
+    BEFORE UPDATE ON mng.tenants
+    FOR EACH ROW
+    EXECUTE FUNCTION mng.update_tenants_updated_at_column();

@@ -137,5 +137,37 @@ namespace DeleuzeAuth.Controllers
                 message = "認証情報の削除に成功しました。"
             });
         }
+        
+        [HttpPost("tenants")]
+        public async Task<IActionResult> RegisterTenant(
+            [FromBody] RegisterAuthTenantRequest request)
+        {
+            if (request == null ||
+                string.IsNullOrWhiteSpace(request.TenantId))
+            {
+                return BadRequest("tenantId は必須です。");
+            }
+
+            var exists = await _dbContext.Tenants
+                .AnyAsync(t => t.TenantId == request.TenantId);
+
+            if (exists)
+            {
+                return Conflict("指定された tenantId は既に存在します。");
+            }
+
+            var tenant = new AuthTenant
+            {
+                TenantId = request.TenantId
+            };
+
+            _dbContext.Tenants.Add(tenant);
+            await _dbContext.SaveChangesAsync();
+
+            return Ok(new
+            {
+                message = "認証テナントの登録に成功しました。"
+            });
+        }
     }
 }

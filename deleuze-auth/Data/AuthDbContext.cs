@@ -15,14 +15,18 @@ namespace DeleuzeAuth.Data
 
         public DbSet<AuthUser> Users { get; set; } = null!;
 
+        public DbSet<AuthTenant> Tenants { get; set; } = null!;
+
         protected override void OnModelCreating(
             ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
 
+            // =========================
+            // auth.users
+            // =========================
             modelBuilder.Entity<AuthUser>(entity =>
             {
-                // auth.users
                 entity.ToTable("users", "auth");
 
                 // 主キー
@@ -30,15 +34,26 @@ namespace DeleuzeAuth.Data
 
                 // テナント内で login_id を一意にする
                 //
-                // flaubert / admin  → OK
+                // flaubert / admin → OK
                 // germinal / admin  → OK
-                // flaubert / admin  → NG
+                // flaubert / admin → NG
                 entity.HasIndex(e => new
                 {
                     e.TenantId,
                     e.LoginId
                 })
                 .IsUnique();
+            });
+
+            // =========================
+            // auth.tenants
+            // =========================
+            modelBuilder.Entity<AuthTenant>(entity =>
+            {
+                entity.ToTable("tenants", "auth");
+
+                // 主キー
+                entity.HasKey(e => e.TenantId);
             });
         }
     }
