@@ -60,17 +60,6 @@ if (enableMngAuth && string.IsNullOrEmpty(apiSecret))
         "認証が有効ですが、環境変数 'MANAGEMENT_API_SECRET' が設定されていません。");
 }
 
-// 各サービスのベースURL設定
-var authServiceUrl =
-    builder.Configuration["AUTH_SERVICE_URL"]
-    ?? "http://192.168.8.112:5001";
-
-var driveServiceUrl =
-    builder.Configuration["DRIVE_SERVICE_URL"]
-    ?? "http://192.168.8.112:5004";
-
-builder.Services.AddHttpClient();
-
 builder.Services.AddControllers();
 
 // 4. Swagger
@@ -133,7 +122,50 @@ app.UseCors();
 if (!enableMngAuth)
 {
     app.Logger.LogWarning(
-        "[MNG-AUTH] 管理APIのワンタイムトークン認証は無効化されています。");
+        "[MNG-AUTH] 管理APIの認証は無効化されています。");
+}
+else
+{
+    app.Use(async (context, next) =>
+    {
+        var path = context.Request.Path.Value ?? string.Empty;
+        if (path.Contains("swagger", StringComparison.OrdinalIgnoreCase))
+        {
+            await next();
+            return;
+        }
+
+        if (!context.Request.Headers.TryGetValue("Authorization", out var authHeaderValues) &&
+            !context.Request.Headers.TryGetValue("X-Management-Secret", out authHeaderValues))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                error = "Unauthorized",
+                message = "Authorization または X-Management-Secret ヘッダーが必要です。"
+            });
+            return;
+        }
+
+        var rawToken = authHeaderValues.ToString().Trim();
+        if (rawToken.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            rawToken = rawToken[7..].Trim();
+        }
+
+        if (string.IsNullOrEmpty(rawToken) || rawToken != apiSecret)
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                error = "Unauthorized",
+                message = "管理APIシークレットが無効です。"
+            });
+            return;
+        }
+
+        await next();
+    });
 }
 
 app.UseDefaultFiles();

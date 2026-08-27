@@ -11,7 +11,7 @@ using DeleuzeMng.Models;
 namespace DeleuzeMng.Controllers
 {
     [ApiController]
-    [Route("api/mng/tenants")]
+    [Route(ApiRoutes.Management.Tenants)]
     public class TenantsController : ControllerBase
     {
         private readonly MngDbContext _dbContext;

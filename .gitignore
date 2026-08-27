@@ -9,3 +9,6 @@ bin/
 obj/
 test-file.pdf
 .env
+.sln
+
+deleuze-api.sln

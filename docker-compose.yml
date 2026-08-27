@@ -41,17 +41,17 @@ services:
     volumes:
       - deleuze_mng_db_data:/var/lib/postgresql/data
 
-  deleuze-drive-db:
-    <<: *db-common
-    container_name: deleuze-drive-db
-    ports:
-      - "${DRIVE_DB_PORT}:5432"
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${DRIVE_DB_NAME}
-    volumes:
-      - deleuze_drive_db_data:/var/lib/postgresql/data
+  # deleuze-drive-db:
+  #   <<: *db-common
+  #   container_name: deleuze-drive-db
+  #   ports:
+  #     - "${DRIVE_DB_PORT}:5432"
+  #   environment:
+  #     POSTGRES_USER: ${POSTGRES_USER}
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #     POSTGRES_DB: ${DRIVE_DB_NAME}
+  #   volumes:
+  #     - deleuze_drive_db_data:/var/lib/postgresql/data
 
   # --- APIs (Hot Reload) ---
   deleuze-auth:
@@ -91,28 +91,27 @@ services:
       AUTH_INTERNAL_URL: ${AUTH_INTERNAL_URL}
       MANAGEMENT_API_SECRET: ${MANAGEMENT_API_SECRET}
       ENABLE_MNG_AUTH: ${ENABLE_MNG_AUTH}
-      Services__Drive__InternalApiUrl: http://deleuze-drive:5003
     depends_on:
       - deleuze-mng-db
       - deleuze-auth-db
 
-  deleuze-drive:
-    <<: *dotnet-watch
-    container_name: deleuze-drive
-    working_dir: /app/deleuze-drive
-    ports:
-      - "5003:5003"
-    environment:
-      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
-      ASPNETCORE_URLS: http://0.0.0.0:5003
-      DOTNET_USE_POLLING_FILE_WATCHER: "true"
-      ConnectionStrings__DefaultConnection: ${CONN_DRIVE_DB}
-      AUTH_EXTERNAL_URL: ${AUTH_EXTERNAL_URL}
-      AUTH_INTERNAL_URL: ${AUTH_INTERNAL_URL}
-    depends_on:
-      - deleuze-drive-db
+  # deleuze-drive:
+  #   <<: *dotnet-watch
+  #   container_name: deleuze-drive
+  #   working_dir: /app/deleuze-drive
+  #   ports:
+  #     - "5003:5003"
+  #   environment:
+  #     ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
+  #     ASPNETCORE_URLS: http://0.0.0.0:5003
+  #     DOTNET_USE_POLLING_FILE_WATCHER: "true"
+  #     ConnectionStrings__DefaultConnection: ${CONN_DRIVE_DB}
+  #     AUTH_EXTERNAL_URL: ${AUTH_EXTERNAL_URL}
+  #     AUTH_INTERNAL_URL: ${AUTH_INTERNAL_URL}
+  #   depends_on:
+  #     - deleuze-drive-db
 
 volumes:
   deleuze_auth_db_data:
   deleuze_mng_db_data:
-  deleuze_drive_db_data:
+  # deleuze_drive_db_data:

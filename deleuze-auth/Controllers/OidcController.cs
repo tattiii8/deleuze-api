@@ -13,12 +13,10 @@ namespace DeleuzeAuth.Controllers
     [Route(ApiRoutes.Auth.Base)] // <- ここを修正
     public class OidcController : ControllerBase
     {
-        private readonly IUserService _userService;
         private readonly TokenGenerator _tokenGenerator;
 
-        public OidcController(IUserService userService, TokenGenerator tokenGenerator)
+        public OidcController(TokenGenerator tokenGenerator)
         {
-            _userService = userService;
             _tokenGenerator = tokenGenerator;
         }
 

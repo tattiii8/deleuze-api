@@ -11,6 +11,7 @@ using Microsoft.EntityFrameworkCore;
 
 using DeleuzeAuth.Data;
 using DeleuzeAuth.Models;
+using DeleuzeAuth.Services;
 using Deleuze.Shared.Constants;
 
 namespace DeleuzeAuth.Controllers
@@ -223,7 +224,7 @@ namespace DeleuzeAuth.Controllers
             });
         }
 
-　　　　　/// <summary>
+        /// <summary>
         /// 管理コンソールから指定されたユーザー（loginId）の API Key 一覧を取得します。
         /// JWTは不要です。
         ///
@@ -385,6 +386,7 @@ namespace DeleuzeAuth.Controllers
         /// <summary>
         /// API Keyを失効させます。
         /// </summary>
+        [HttpDelete("apikey/{id:guid}")]
         [HttpDelete("{id:guid}")]
         public async Task<IActionResult> RevokeApiKey(Guid id)
         {
