@@ -20,7 +20,7 @@ public static class ApiRoutes
         public const string Base = Prefix + "/auth";
         public const string InternalBase = Base + "/internal"; // -> "api/auth/internal"
         public const string OpenIdConfig = ".well-known/openid-configuration";
-        public const string Jwks = ".well-known/jwks";
+        public const string Jwks = Base + ".well-known/jwks";
         public const string Token = "connect/token";
     }
 
