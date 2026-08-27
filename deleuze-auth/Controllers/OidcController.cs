@@ -10,7 +10,7 @@ namespace DeleuzeAuth.Controllers
 {
     [ApiController]
     [AllowAnonymous]
-    [Route(ApiRoutes.Auth.Base)] // <- ここを修正
+    [Route("")]
     public class OidcController : ControllerBase
     {
         private readonly TokenGenerator _tokenGenerator;
@@ -20,22 +20,36 @@ namespace DeleuzeAuth.Controllers
             _tokenGenerator = tokenGenerator;
         }
 
-        [HttpGet(ApiRoutes.Auth.OpenIdConfig)]
+        [HttpGet(".well-known/openid-configuration")]
         public IActionResult GetOpenIdConfiguration()
         {
-            var externalUrl = (Environment.GetEnvironmentVariable("AUTH_EXTERNAL_URL") ?? "https://deleuze.lesure.net/api/auth").TrimEnd('/');
+            var externalUrl =
+                (Environment.GetEnvironmentVariable("AUTH_EXTERNAL_URL")
+                ?? "https://deleuze.lesure.net/api/auth")
+                .TrimEnd('/');
+
             return Ok(new
             {
                 issuer = externalUrl,
                 token_endpoint = $"{externalUrl}/connect/token",
-                jwks_uri = $"{externalUrl}/.well-known/jwks",
-                grant_types_supported = new[] { "password", "client_credentials" },
-                token_endpoint_auth_methods_supported = new[] { "client_secret_post" },
-                id_token_signing_alg_values_supported = new[] { "RS256" }
+                jwks_uri = "https://deleuze.lesure.net/.well-known/jwks",
+                grant_types_supported = new[]
+                {
+                    "password",
+                    "client_credentials"
+                },
+                token_endpoint_auth_methods_supported = new[]
+                {
+                    "client_secret_post"
+                },
+                id_token_signing_alg_values_supported = new[]
+                {
+                    "RS256"
+                }
             });
         }
 
-        [HttpGet(ApiRoutes.Auth.Jwks)]
+        [HttpGet(".well-known/jwks")]
         public IActionResult GetJwks()
         {
             return Ok(_tokenGenerator.GetJwks());
