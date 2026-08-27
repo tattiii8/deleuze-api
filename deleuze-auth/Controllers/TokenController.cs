@@ -16,7 +16,7 @@ namespace DeleuzeAuth.Controllers
     /// </summary>
     [ApiController]
     [AllowAnonymous]
-    [Route(ApiRoutes.Auth.Base)]
+    [Route("")]
     public class TokenController : ControllerBase
     {
         private const string GrantPassword = "password";
