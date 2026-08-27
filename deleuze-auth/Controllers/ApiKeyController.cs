@@ -223,10 +223,126 @@ namespace DeleuzeAuth.Controllers
             });
         }
 
+　　　　　/// <summary>
+        /// 管理コンソールから指定されたユーザー（loginId）の API Key 一覧を取得します。
+        /// JWTは不要です。
+        ///
+        /// GET /api/auth/admin/apikey/{loginId}?tenantId={tenantId}
+        /// </summary>
+        [AllowAnonymous]
+        [HttpGet("admin/apikey/{loginId}")]
+        public async Task<IActionResult> GetAdminApiKeysByLoginId(
+            [FromRoute] string loginId,
+            [FromQuery] string tenantId)
+        {
+            // ==========================================
+            // 1. リクエストチェック
+            // ==========================================
+            if (string.IsNullOrWhiteSpace(loginId) ||
+                string.IsNullOrWhiteSpace(tenantId))
+            {
+                return BadRequest(new
+                {
+                    error = "InvalidRequest",
+                    message = "loginId と tenantId は必須です。"
+                });
+            }
+
+            // ==========================================
+            // 2. TenantId + LoginId からユーザー取得
+            // ==========================================
+            var user = await _dbContext.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u =>
+                    u.TenantId == tenantId &&
+                    u.LoginId == loginId);
+
+            if (user == null)
+            {
+                return NotFound(new
+                {
+                    error = "UserNotFound",
+                    message = "指定されたユーザーが存在しません。"
+                });
+            }
+
+            // ==========================================
+            // 3. API Key 一覧取得
+            // ==========================================
+            var apiKeys = await _dbContext.ApiKeys
+                .AsNoTracking()
+                .Where(k =>
+                    k.SubjectId == user.SubjectId &&
+                    k.TenantId == user.TenantId)
+                .OrderByDescending(k => k.CreatedAt)
+                .Select(k => new
+                {
+                    id = k.Id,
+                    name = k.Name,
+                    createdAt = k.CreatedAt,
+                    expiresAt = k.ExpiresAt,
+                    revokedAt = k.RevokedAt,
+                    active =
+                        k.RevokedAt == null &&
+                        (k.ExpiresAt == null ||
+                         k.ExpiresAt > DateTimeOffset.UtcNow)
+                })
+                .ToListAsync();
+
+            return Ok(apiKeys);
+        }
+
+        /// <summary>
+        /// 管理コンソールから指定した UUID の API Key を削除（失効）します。
+        /// JWTは不要です。
+        ///
+        /// DELETE /api/auth/admin/apikey/{id}
+        /// </summary>
+        [AllowAnonymous]
+        [HttpDelete("admin/apikey/{id:guid}")]
+        public async Task<IActionResult> RevokeAdminApiKey(Guid id)
+        {
+            // ==========================================
+            // UUID を指定して API Key を取得
+            // ==========================================
+            var apiKey = await _dbContext.ApiKeys
+                .FirstOrDefaultAsync(k => k.Id == id);
+
+            if (apiKey == null)
+            {
+                return NotFound(new
+                {
+                    error = "ApiKeyNotFound",
+                    message = "指定されたAPI Keyが存在しません。"
+                });
+            }
+
+            if (apiKey.RevokedAt != null)
+            {
+                return Ok(new
+                {
+                    message = "API Keyは既に失効しています。"
+                });
+            }
+
+            // 論理削除（失効日時の記録）
+            apiKey.RevokedAt = DateTimeOffset.UtcNow;
+
+            await _dbContext.SaveChangesAsync();
+
+            return Ok(new
+            {
+                message = "API Keyを失効させました。",
+                id = apiKey.Id
+            });
+        }
+
+
 
         /// <summary>
         /// 現在のユーザーが発行したAPI Key一覧を取得します。
         /// </summary>
+        /// 
         [HttpGet("apikey")]
         public async Task<IActionResult> GetApiKeys()
         {
