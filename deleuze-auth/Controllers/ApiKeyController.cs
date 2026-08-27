@@ -101,7 +101,7 @@ namespace DeleuzeAuth.Controllers
             var apiKey = GenerateApiKey();
 
             // DBにはハッシュのみ保存
-            var keyHash = HashApiKey(apiKey);
+            var keyHash = ApiKeyHasher.Hash(apiKey);
 
             var entity = new ApiKey
             {
@@ -184,7 +184,7 @@ namespace DeleuzeAuth.Controllers
             var apiKey = GenerateApiKey();
 
             // DBにはハッシュのみ保存
-            var keyHash = HashApiKey(apiKey);
+            var keyHash = ApiKeyHasher.Hash(apiKey);
 
             // ==========================================
             // 4. API Key保存
@@ -468,16 +468,5 @@ namespace DeleuzeAuth.Controllers
                        .Replace("=", "");
         }
 
-        // ==========================================
-        // API Keyハッシュ化
-        // ==========================================
-        private static string HashApiKey(string apiKey)
-        {
-            var bytes = SHA256.HashData(
-                Encoding.UTF8.GetBytes(apiKey));
-
-            return Convert.ToHexString(bytes)
-                .ToLowerInvariant();
-        }
     }
 }

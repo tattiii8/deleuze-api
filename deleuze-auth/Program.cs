@@ -12,7 +12,6 @@ using Deleuze.Shared.Constants;
 using Deleuze.Shared.Swagger;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
-using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -43,19 +42,12 @@ builder.Services.AddDbContext<AuthDbContext>(options =>
 
 
 builder.Services.AddSingleton<IPasswordHasher, BCryptPasswordHasher>();
-builder.Services.AddSingleton<TokenGenerator>(); // RSA 鍵の生成
+
+var tokenGenerator = new TokenGenerator(builder.Configuration);
+builder.Services.AddSingleton(tokenGenerator);
 
 // 3. コントローラーの有効化
 builder.Services.AddControllers();
-
-// JWT Authentication
-var jwtKey = builder.Configuration["Jwt:Key"];
-
-if (string.IsNullOrWhiteSpace(jwtKey))
-{
-    throw new InvalidOperationException(
-        "Jwt:Key が設定されていません。");
-}
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -65,15 +57,13 @@ builder.Services
             new TokenValidationParameters
             {
                 ValidateIssuer = true,
-                ValidIssuer = builder.Configuration["Jwt:Issuer"],
+                ValidIssuer = tokenGenerator.Issuer,
 
                 ValidateAudience = true,
-                ValidAudience = builder.Configuration["Jwt:Audience"],
+                ValidAudience = tokenGenerator.Audience,
 
                 ValidateIssuerSigningKey = true,
-                IssuerSigningKey =
-                    new SymmetricSecurityKey(
-                        Encoding.UTF8.GetBytes(jwtKey)),
+                IssuerSigningKey = tokenGenerator.SigningKey,
 
                 ValidateLifetime = true,
 

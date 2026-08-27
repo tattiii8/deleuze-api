@@ -7,6 +7,9 @@ namespace DeleuzeAuth.Services;
 
 public class TokenGenerator
 {
+    public const string TokenUseUser = "user";
+    public const string TokenUseApi = "api";
+
     private readonly IConfiguration _configuration;
     private readonly RSA _rsa;
     private readonly RsaSecurityKey _key;
@@ -14,49 +17,71 @@ public class TokenGenerator
     public TokenGenerator(IConfiguration configuration)
     {
         _configuration = configuration;
-        
-        // シングルトンとしてインスタンス化される際、RSA鍵ペアを生成
+
         _rsa = RSA.Create(2048);
         _key = new RsaSecurityKey(_rsa)
         {
-            KeyId = "deleuze-auth-key" // 鍵識別子 (kid)
+            KeyId = "deleuze-auth-key"
         };
     }
 
-    /// <summary>
-    /// loginId と tenantId から JWT を生成（Program.cs から呼び出される）
-    /// </summary>
-    public string GenerateJwt(string loginId, string tenantId)
-    {
-        var externalUrl = Environment.GetEnvironmentVariable("AUTH_EXTERNAL_URL") 
-            ?? _configuration["Authentication:Issuer"] 
-            ?? "http://deleuze-auth:8080";
+    public SecurityKey SigningKey => _key;
 
-        var credentials = new SigningCredentials(_key, SecurityAlgorithms.RsaSha256);
+    public string Issuer =>
+        (Environment.GetEnvironmentVariable("AUTH_EXTERNAL_URL")
+         ?? _configuration["Jwt:Issuer"]
+         ?? _configuration["Authentication:Issuer"]
+         ?? "http://deleuze-auth:8080")
+        .TrimEnd('/');
+
+    public string Audience =>
+        _configuration["Jwt:Audience"] ?? Issuer;
+
+    public AccessTokenResult GenerateUserToken(
+        string subjectId,
+        string tenantId,
+        string loginId)
+    {
+        var lifetimeMinutes = GetUserLifetimeMinutes();
 
         var claims = new[]
         {
-            new Claim(JwtRegisteredClaimNames.Sub, loginId),
+            new Claim(JwtRegisteredClaimNames.Sub, subjectId),
+            new Claim("tenant_id", tenantId),
+            new Claim(JwtRegisteredClaimNames.UniqueName, loginId),
             new Claim("login_id", loginId),
-            new Claim("tenant_id", tenantId) // 業務アプリDBのスキーマ等を特定するためのクレーム
+            new Claim("token_use", TokenUseUser),
+            new Claim("gty", "password")
         };
 
-        var token = new JwtSecurityToken(
-            issuer: externalUrl,
-            audience: externalUrl,
-            claims: claims,
-            expires: DateTime.UtcNow.AddHours(2),
-            signingCredentials: credentials);
+        return CreateToken(claims, lifetimeMinutes);
+    }
 
-        return new JwtSecurityTokenHandler().WriteToken(token);
+    public AccessTokenResult GenerateApiToken(
+        string subjectId,
+        string tenantId,
+        Guid apiKeyId)
+    {
+        var lifetimeMinutes = GetApiLifetimeMinutes();
+
+        var claims = new[]
+        {
+            new Claim(JwtRegisteredClaimNames.Sub, subjectId),
+            new Claim("tenant_id", tenantId),
+            new Claim("token_use", TokenUseApi),
+            new Claim("api_key_id", apiKeyId.ToString()),
+            new Claim("gty", "client_credentials")
+        };
+
+        return CreateToken(claims, lifetimeMinutes);
     }
 
     /// <summary>
-    /// JWKS (Json Web Key Set) の公開鍵情報を返却（Program.cs /.well-known/jwks から呼び出される）
+    /// JWKS (Json Web Key Set) の公開鍵情報を返却
     /// </summary>
     public object GetJwks()
     {
-        var parameters = _rsa.ExportParameters(false); // 公開鍵パラメータのみ取得
+        var parameters = _rsa.ExportParameters(false);
 
         var jwk = new
         {
@@ -70,4 +95,61 @@ public class TokenGenerator
 
         return new { keys = new[] { jwk } };
     }
+
+    private AccessTokenResult CreateToken(
+        IEnumerable<Claim> claims,
+        int lifetimeMinutes)
+    {
+        var credentials = new SigningCredentials(
+            _key,
+            SecurityAlgorithms.RsaSha256);
+
+        var expires = DateTime.UtcNow.AddMinutes(lifetimeMinutes);
+
+        var token = new JwtSecurityToken(
+            issuer: Issuer,
+            audience: Audience,
+            claims: claims,
+            expires: expires,
+            signingCredentials: credentials);
+
+        return new AccessTokenResult
+        {
+            AccessToken = new JwtSecurityTokenHandler().WriteToken(token),
+            ExpiresIn = lifetimeMinutes * 60
+        };
+    }
+
+    private int GetUserLifetimeMinutes()
+    {
+        if (int.TryParse(
+                _configuration["Jwt:ExpiresMinutes"],
+                out var minutes) &&
+            minutes > 0)
+        {
+            return minutes;
+        }
+
+        return 60;
+    }
+
+    private int GetApiLifetimeMinutes()
+    {
+        if (int.TryParse(
+                _configuration["Jwt:ApiExpiresMinutes"],
+                out var minutes) &&
+            minutes > 0)
+        {
+            return minutes;
+        }
+
+        return 15;
+    }
+}
+
+public class AccessTokenResult
+{
+    public string AccessToken { get; set; } = string.Empty;
+
+    public int ExpiresIn { get; set; }
 }

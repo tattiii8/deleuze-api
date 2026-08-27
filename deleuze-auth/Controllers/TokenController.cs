@@ -1,218 +1,273 @@
-using System;
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Text;
-using System.Threading.Tasks;
-
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
-
 using Deleuze.Shared.Constants;
-
 using DeleuzeAuth.Data;
 using DeleuzeAuth.Models;
+using DeleuzeAuth.Services;
 
 namespace DeleuzeAuth.Controllers
 {
     /// <summary>
-    /// API利用者向けアクセストークン発行
+    /// OAuth 風アクセストークン発行
     ///
-    /// POST /api/auth/token
+    /// POST /api/auth/connect/token
     /// </summary>
     [ApiController]
     [AllowAnonymous]
     [Route(ApiRoutes.Auth.Base)]
     public class TokenController : ControllerBase
     {
+        private const string GrantPassword = "password";
+        private const string GrantClientCredentials = "client_credentials";
+
         private readonly AuthDbContext _dbContext;
-        private readonly IConfiguration _configuration;
+        private readonly TokenGenerator _tokenGenerator;
 
         public TokenController(
             AuthDbContext dbContext,
-            IConfiguration configuration)
+            TokenGenerator tokenGenerator)
         {
             _dbContext = dbContext;
-            _configuration = configuration;
+            _tokenGenerator = tokenGenerator;
         }
 
         /// <summary>
         /// アクセストークンを発行します。
+        /// grant_type=password または client_credentials。
+        /// application/json と application/x-www-form-urlencoded の両方を受け付けます。
         /// </summary>
         [HttpPost("connect/token")]
-        public async Task<IActionResult> IssueToken(
-            [FromBody] IssueTokenRequest request)
+        [Consumes("application/json", "application/x-www-form-urlencoded")]
+        public async Task<IActionResult> IssueToken()
         {
-            // ==========================================
-            // 1. リクエストチェック
-            // ==========================================
-            if (request == null ||
-                string.IsNullOrWhiteSpace(request.TenantId) ||
-                string.IsNullOrWhiteSpace(request.LoginId) ||
-                string.IsNullOrWhiteSpace(request.Password))
+            var request = await ReadRequestAsync();
+
+            if (request == null)
             {
-                return BadRequest(new
-                {
-                    error = "InvalidRequest",
-                    message = "TenantId, LoginId, Password は必須です。"
-                });
+                return OAuthError(
+                    StatusCodes.Status400BadRequest,
+                    "invalid_request",
+                    "リクエストを解釈できませんでした。");
             }
 
-            // ==========================================
-            // 2. テナント存在確認
-            // ==========================================
+            var grantType = ResolveGrantType(request);
+
+            if (string.IsNullOrWhiteSpace(grantType))
+            {
+                return OAuthError(
+                    StatusCodes.Status400BadRequest,
+                    "invalid_request",
+                    "grant_type は必須です。");
+            }
+
+            if (string.Equals(grantType, GrantPassword, StringComparison.OrdinalIgnoreCase))
+            {
+                return await IssuePasswordTokenAsync(request);
+            }
+
+            if (string.Equals(grantType, GrantClientCredentials, StringComparison.OrdinalIgnoreCase))
+            {
+                return await IssueClientCredentialsTokenAsync(request);
+            }
+
+            return OAuthError(
+                StatusCodes.Status400BadRequest,
+                "unsupported_grant_type",
+                "サポートされていない grant_type です。");
+        }
+
+        private async Task<IActionResult> IssuePasswordTokenAsync(
+            IssueTokenRequest request)
+        {
+            var tenantId = request.TenantId?.Trim();
+            var loginId = request.ResolvedUsername?.Trim();
+            var password = request.Password;
+
+            if (string.IsNullOrWhiteSpace(tenantId) ||
+                string.IsNullOrWhiteSpace(loginId) ||
+                string.IsNullOrWhiteSpace(password))
+            {
+                return OAuthError(
+                    StatusCodes.Status400BadRequest,
+                    "invalid_request",
+                    "tenant_id, username, password は必須です。");
+            }
+
             var tenantExists = await _dbContext.Tenants
                 .AsNoTracking()
-                .AnyAsync(t => t.TenantId == request.TenantId);
+                .AnyAsync(t => t.TenantId == tenantId);
 
             if (!tenantExists)
             {
-                // テナントの存在有無を外部に詳細に知らせない
-                return Unauthorized(new
-                {
-                    error = "InvalidCredentials",
-                    message = "テナントID、ログインID、またはパスワードが正しくありません。"
-                });
+                return InvalidCredentials();
             }
 
-            // ==========================================
-            // 3. ユーザー取得
-            // ==========================================
             var user = await _dbContext.Users
                 .AsNoTracking()
                 .FirstOrDefaultAsync(u =>
-                    u.TenantId == request.TenantId &&
-                    u.LoginId == request.LoginId);
+                    u.TenantId == tenantId &&
+                    u.LoginId == loginId);
 
             if (user == null)
             {
-                return Unauthorized(new
-                {
-                    error = "InvalidCredentials",
-                    message = "テナントID、ログインID、またはパスワードが正しくありません。"
-                });
+                return InvalidCredentials();
             }
 
-            // ==========================================
-            // 4. パスワード検証
-            // ==========================================
             bool passwordValid;
 
             try
             {
                 passwordValid = BCrypt.Net.BCrypt.Verify(
-                    request.Password,
+                    password,
                     user.PasswordHash);
             }
             catch
             {
-                // 不正なハッシュ等がDBに存在する場合も
-                // 認証失敗として扱う
                 passwordValid = false;
             }
 
             if (!passwordValid)
             {
-                return Unauthorized(new
+                return InvalidCredentials();
+            }
+
+            var token = _tokenGenerator.GenerateUserToken(
+                user.SubjectId,
+                user.TenantId,
+                user.LoginId);
+
+            return Ok(ToResponse(token));
+        }
+
+        private async Task<IActionResult> IssueClientCredentialsTokenAsync(
+            IssueTokenRequest request)
+        {
+            var clientSecret = request.ClientSecret?.Trim();
+
+            if (string.IsNullOrWhiteSpace(clientSecret))
+            {
+                return OAuthError(
+                    StatusCodes.Status400BadRequest,
+                    "invalid_request",
+                    "client_secret は必須です。");
+            }
+
+            var keyHash = ApiKeyHasher.Hash(clientSecret);
+
+            var apiKey = await _dbContext.ApiKeys
+                .AsNoTracking()
+                .FirstOrDefaultAsync(k => k.KeyHash == keyHash);
+
+            var now = DateTimeOffset.UtcNow;
+
+            if (apiKey == null ||
+                apiKey.RevokedAt != null ||
+                (apiKey.ExpiresAt != null && apiKey.ExpiresAt <= now))
+            {
+                return OAuthError(
+                    StatusCodes.Status401Unauthorized,
+                    "invalid_client",
+                    "client 認証に失敗しました。");
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.ClientId))
+            {
+                var clientId = request.ClientId.Trim();
+                var matchesTenant = string.Equals(
+                    clientId,
+                    apiKey.TenantId,
+                    StringComparison.Ordinal);
+                var matchesKeyId =
+                    Guid.TryParse(clientId, out var keyId) &&
+                    keyId == apiKey.Id;
+
+                if (!matchesTenant && !matchesKeyId)
                 {
-                    error = "InvalidCredentials",
-                    message = "テナントID、ログインID、またはパスワードが正しくありません。"
-                });
+                    return OAuthError(
+                        StatusCodes.Status401Unauthorized,
+                        "invalid_client",
+                        "client 認証に失敗しました。");
+                }
             }
 
-            // ==========================================
-            // 5. Access Token発行
-            // ==========================================
-            var accessToken = GenerateAccessToken(user);
+            var token = _tokenGenerator.GenerateApiToken(
+                apiKey.SubjectId,
+                apiKey.TenantId,
+                apiKey.Id);
 
-            // ==========================================
-            // 6. レスポンス
-            // ==========================================
-            return Ok(new
-            {
-                accessToken,
-                tokenType = "Bearer",
-                expiresIn = GetTokenLifetimeSeconds()
-            });
+            return Ok(ToResponse(token));
         }
 
-        /// <summary>
-        /// JWT Access Tokenを生成します。
-        /// </summary>
-        private string GenerateAccessToken(AuthUser user)
+        private async Task<IssueTokenRequest?> ReadRequestAsync()
         {
-            var key = _configuration["Jwt:Key"];
-
-            if (string.IsNullOrWhiteSpace(key))
+            if (Request.HasFormContentType)
             {
-                throw new InvalidOperationException(
-                    "Jwt:Key が設定されていません。");
+                var form = await Request.ReadFormAsync();
+                return IssueTokenRequest.FromForm(form);
             }
 
-            var issuer = _configuration["Jwt:Issuer"];
-
-            var audience = _configuration["Jwt:Audience"];
-
-            var lifetimeMinutes =
-                GetTokenLifetimeMinutes();
-
-            var claims = new[]
+            try
             {
-                // ユーザー識別子
-                new Claim(
-                    JwtRegisteredClaimNames.Sub,
-                    user.SubjectId),
+                using var document = await JsonDocument.ParseAsync(Request.Body);
+                return IssueTokenRequest.FromJson(document.RootElement);
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
 
-                // テナント識別子
-                new Claim(
-                    "tenant_id",
-                    user.TenantId),
+        private static string? ResolveGrantType(IssueTokenRequest request)
+        {
+            if (!string.IsNullOrWhiteSpace(request.GrantType))
+            {
+                return request.GrantType.Trim();
+            }
 
-                // ログインID
-                new Claim(
-                    JwtRegisteredClaimNames.UniqueName,
-                    user.LoginId)
+            if (!string.IsNullOrWhiteSpace(request.ResolvedUsername) &&
+                !string.IsNullOrWhiteSpace(request.Password))
+            {
+                return GrantPassword;
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.ClientSecret))
+            {
+                return GrantClientCredentials;
+            }
+
+            return null;
+        }
+
+        private static TokenResponse ToResponse(AccessTokenResult token)
+        {
+            return new TokenResponse
+            {
+                AccessToken = token.AccessToken,
+                TokenType = "Bearer",
+                ExpiresIn = token.ExpiresIn
             };
-
-            var securityKey =
-                new SymmetricSecurityKey(
-                    Encoding.UTF8.GetBytes(key));
-
-            var credentials =
-                new SigningCredentials(
-                    securityKey,
-                    SecurityAlgorithms.HmacSha256);
-
-            var token = new JwtSecurityToken(
-                issuer: issuer,
-                audience: audience,
-                claims: claims,
-                expires: DateTime.UtcNow.AddMinutes(
-                    lifetimeMinutes),
-                signingCredentials: credentials);
-
-            return new JwtSecurityTokenHandler()
-                .WriteToken(token);
         }
 
-        private int GetTokenLifetimeMinutes()
+        private IActionResult InvalidCredentials()
         {
-            if (int.TryParse(
-                _configuration["Jwt:ExpiresMinutes"],
-                out var minutes) &&
-                minutes > 0)
+            return OAuthError(
+                StatusCodes.Status401Unauthorized,
+                "invalid_grant",
+                "テナントID、ログインID、またはパスワードが正しくありません。");
+        }
+
+        private IActionResult OAuthError(
+            int statusCode,
+            string error,
+            string description)
+        {
+            return StatusCode(statusCode, new
             {
-                return minutes;
-            }
-
-            // 設定がない場合のデフォルト
-            return 60;
-        }
-
-        private int GetTokenLifetimeSeconds()
-        {
-            return GetTokenLifetimeMinutes() * 60;
+                error,
+                error_description = description
+            });
         }
     }
 }

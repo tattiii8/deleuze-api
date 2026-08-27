@@ -31,6 +31,8 @@ namespace DeleuzeAuth.Controllers
                 issuer = externalUrl,
                 token_endpoint = $"{externalUrl}/connect/token",
                 jwks_uri = $"{externalUrl}/.well-known/jwks",
+                grant_types_supported = new[] { "password", "client_credentials" },
+                token_endpoint_auth_methods_supported = new[] { "client_secret_post" },
                 id_token_signing_alg_values_supported = new[] { "RS256" }
             });
         }
