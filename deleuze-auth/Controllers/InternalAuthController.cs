@@ -14,7 +14,7 @@ namespace DeleuzeAuth.Controllers
     /// Mng等の内部サービスから利用するAuth管理API
     /// </summary>
     [ApiController]
-    [AllowAnonymous]
+    [Authorize]
     [Route(ApiRoutes.Auth.InternalBase)]
     public class InternalAuthController : ControllerBase
     {
@@ -39,6 +39,7 @@ namespace DeleuzeAuth.Controllers
         ///
         /// POST /api/auth/internal/init
         /// </summary>
+        [AllowAnonymous]
         [HttpPost("init")]
         public async Task<IActionResult> InitializeDatabase()
         {

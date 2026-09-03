@@ -25,13 +25,16 @@ namespace DeleuzeMng.Controllers
     {
         private readonly MngDbContext _dbContext;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IAuthTokenService _authTokenService;
 
         public UsersController(
             MngDbContext dbContext,
-            IHttpClientFactory httpClientFactory)
+            IHttpClientFactory httpClientFactory,
+            IAuthTokenService authTokenService)
         {
             _dbContext = dbContext;
             _httpClientFactory = httpClientFactory;
+            _authTokenService = authTokenService;
         }
 
         /// <summary>
@@ -109,6 +112,10 @@ namespace DeleuzeMng.Controllers
                 // 2. 認証API連携
                 var client =
                     _httpClientFactory.CreateClient("AuthApiClient");
+
+                var token = await _authTokenService.GetAccessTokenAsync();
+                client.DefaultRequestHeaders.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
                 var authPayload = new
                 {
@@ -276,6 +283,10 @@ namespace DeleuzeMng.Controllers
                 // 2. Auth APIから削除
                 var client =
                     _httpClientFactory.CreateClient("AuthApiClient");
+
+                var token = await _authTokenService.GetAccessTokenAsync();
+                client.DefaultRequestHeaders.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
                 var authEndpoint =
                     $"{ApiRoutes.Auth.InternalBase}/users/{subjectId}";

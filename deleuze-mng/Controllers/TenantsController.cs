@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Deleuze.Shared.Constants;
 using DeleuzeMng.Data;
 using DeleuzeMng.Models;
+using DeleuzeMng.Services;
 
 namespace DeleuzeMng.Controllers
 {
@@ -16,13 +17,16 @@ namespace DeleuzeMng.Controllers
     {
         private readonly MngDbContext _dbContext;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IAuthTokenService _authTokenService;
 
         public TenantsController(
             MngDbContext dbContext,
-            IHttpClientFactory httpClientFactory)
+            IHttpClientFactory httpClientFactory,
+            IAuthTokenService authTokenService)
         {
             _dbContext = dbContext;
             _httpClientFactory = httpClientFactory;
+            _authTokenService = authTokenService;
         }
 
         /// <summary>
@@ -77,6 +81,10 @@ namespace DeleuzeMng.Controllers
                 // 2. Authへ同期
                 var client =
                     _httpClientFactory.CreateClient("AuthApiClient");
+
+                var token = await _authTokenService.GetAccessTokenAsync();
+                client.DefaultRequestHeaders.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
                 var authPayload = new
                 {
@@ -203,6 +211,10 @@ namespace DeleuzeMng.Controllers
                 // 1. Auth側のテナントを削除
                 var client =
                     _httpClientFactory.CreateClient("AuthApiClient");
+
+                var token = await _authTokenService.GetAccessTokenAsync();
+                client.DefaultRequestHeaders.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
                 var authEndpoint =
                     $"{ApiRoutes.Auth.InternalBase}/tenants/{tenantId}";
