@@ -18,6 +18,9 @@ builder.Services.AddHttpClient("AuthApiClient", client =>
     client.BaseAddress = new Uri(authInternalUrl);
 });
 
+// AuthTokenService の登録
+builder.Services.AddSingleton<IAuthTokenService, AuthTokenService>();
+
 // ログ設定
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();

@@ -202,21 +202,28 @@ namespace DeleuzeAuth.Controllers
 
         private async Task<IssueTokenRequest?> ReadRequestAsync()
         {
+            IssueTokenRequest? request = null;
+
             if (Request.HasFormContentType)
             {
                 var form = await Request.ReadFormAsync();
-                return IssueTokenRequest.FromForm(form);
+                request = IssueTokenRequest.FromForm(form);
+            }
+            else
+            {
+                try
+                {
+                    using var document = await JsonDocument.ParseAsync(Request.Body);
+                    request = IssueTokenRequest.FromJson(document.RootElement);
+                }
+                catch (JsonException)
+                {
+                    request = new IssueTokenRequest();
+                }
             }
 
-            try
-            {
-                using var document = await JsonDocument.ParseAsync(Request.Body);
-                return IssueTokenRequest.FromJson(document.RootElement);
-            }
-            catch (JsonException)
-            {
-                return null;
-            }
+            request?.ApplyHeaderAuth(Request);
+            return request;
         }
 
         private static string? ResolveGrantType(IssueTokenRequest request)

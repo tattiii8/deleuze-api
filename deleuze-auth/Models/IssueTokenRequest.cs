@@ -49,6 +49,33 @@ namespace DeleuzeAuth.Models
             };
         }
 
+        public void ApplyHeaderAuth(HttpRequest httpRequest)
+        {
+            if (httpRequest.Headers.TryGetValue("Authorization", out var authHeaderValues))
+            {
+                var header = authHeaderValues.ToString().Trim();
+                if (header.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        var encodedCredentials = header[6..].Trim();
+                        var credentialsBytes = Convert.FromBase64String(encodedCredentials);
+                        var credentials = System.Text.Encoding.UTF8.GetString(credentialsBytes);
+                        var parts = credentials.Split(':', 2);
+                        if (parts.Length == 2)
+                        {
+                            if (string.IsNullOrWhiteSpace(ClientId)) ClientId = parts[0];
+                            if (string.IsNullOrWhiteSpace(ClientSecret)) ClientSecret = parts[1];
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore invalid basic auth header formatting
+                    }
+                }
+            }
+        }
+
         private static string? FirstForm(IFormCollection form, params string[] names)
         {
             foreach (var name in names)

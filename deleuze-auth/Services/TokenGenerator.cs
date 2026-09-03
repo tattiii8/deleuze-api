@@ -70,6 +70,7 @@ public class TokenGenerator
             new Claim("tenant_id", tenantId),
             new Claim("token_use", TokenUseApi),
             new Claim("api_key_id", apiKeyId.ToString()),
+            new Claim("client_id", apiKeyId.ToString()),
             new Claim("gty", "client_credentials")
         };
 
